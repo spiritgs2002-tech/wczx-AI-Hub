@@ -25,9 +25,17 @@ function loadKatexAssets(): { js: string; css: string; available: boolean } {
     const js = fs.readFileSync(path.join(katexDir, "katex.min.js"), "utf-8");
     const cssSource = fs.readFileSync(path.join(katexDir, "katex.min.css"), "utf-8");
     // srcDoc 中的相对 fonts/ 路径会解析为 /student/fonts/ 并产生 404，改为同源字体接口
+    // ⚠️ GOTCHA：伴学运行在无同源权限的 iframe 中，浏览器会拦截它向本服务器发出的字体请求，
+    //   因此 woff2 直接内联为 data URI（20 个文件约 296 KB）；woff/ttf 仅作老浏览器兜底，仍指向字体接口。
     const css = cssSource.replace(
       /url\(fonts\/([^)]+)\)/g,
-      (_match, fontFile: string) => `url("/api/katex-fonts/${fontFile}")`
+      (_match, fontFile: string) => {
+        if (fontFile.endsWith(".woff2")) {
+          const b64 = fs.readFileSync(path.join(katexDir, "fonts", fontFile)).toString("base64");
+          return `url("data:font/woff2;base64,${b64}")`;
+        }
+        return `url("/api/katex-fonts/${fontFile}")`;
+      }
     );
     return { js, css, available: true };
   } catch (e) {
@@ -278,6 +286,27 @@ export const aiCompanionScript = String.raw`
   // 服务端迟迟不出声（网络黑洞 / 排队卡住）由 15 秒看门狗兜底。
 
   var SPEECH_SETTINGS_KEY = 'qc-speech-settings';
+  // ⚠️ GOTCHA：探究 iframe 已去掉 allow-same-origin（防止页面脚本读走登录令牌），成为“不透明源”。
+  //   不透明源既读不到宿主 localStorage，**向本服务器发出的子资源请求也会被浏览器拦截**
+  //   （Chrome 本地网络访问限制，2026-11-12 实测 Chrome 152 下 <img>/<audio> 请求根本不发出）。
+  //   因此本脚本**不直接请求服务器**：朗读设置由宿主下发；图片、朗读音频一律经 askHost 让宿主代取，以 data URL / 二进制回传。
+  // 🔗 RELATED：宿主实现 src/app/student/chat/ExplorationPanel.tsx，消息类型 AI_COMPANION_CONTEXT / AI_COMPANION_BRIDGE(_RESULT) MUST STAY IN SYNC。
+  // ⛔ DO NOT 在这里新增 fetch('/api/...') 或 src="/api/..."：在学生端一定失败。
+  var AC_CTX = { speech: null };
+  var bridgeSeq = 0;
+  var bridgePending = {};
+  function askHost(kind, data, timeoutMs) {
+    return new Promise(function(resolve, reject) {
+      var reqId = 'br-' + (++bridgeSeq);
+      var timer = setTimeout(function() { delete bridgePending[reqId]; reject(new Error(kind + ' timeout')); }, timeoutMs);
+      bridgePending[reqId] = function(d) { clearTimeout(timer); delete bridgePending[reqId]; resolve(d); };
+      window.parent.postMessage({ type: 'AI_COMPANION_BRIDGE', kind: kind, reqId: reqId, data: data }, '*');
+    });
+  }
+  function requestTts(text, voice) {
+    return askHost('tts', { text: text, voice: voice }, 20000);
+  }
+
   var DEFAULT_VOICE_ID = '${DEFAULT_TTS_VOICE}';
   var DEFAULT_SPEECH_RATE = 1.2;
   var ICON_PLAY = '<svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><path d="M8 5v14l11-7z" fill="currentColor"></path></svg>';
@@ -289,9 +318,13 @@ export const aiCompanionScript = String.raw`
 
   function readSpeechSettings() {
     try {
-      var raw = window.localStorage.getItem(SPEECH_SETTINGS_KEY);
-      if (raw) {
-        var o = JSON.parse(raw) || {};
+      var o = null;
+      try {
+        var raw = window.localStorage.getItem(SPEECH_SETTINGS_KEY);
+        if (raw) o = JSON.parse(raw) || {};
+      } catch (e2) { /* 无同源权限时读不到，改用宿主下发的设置 */ }
+      if (!o && AC_CTX.speech) o = AC_CTX.speech;
+      if (o) {
         var rate = Number(o.rate);
         return {
           enabled: o.enabled === true,
@@ -454,19 +487,14 @@ export const aiCompanionScript = String.raw`
     }
 
     // ---------- 首选：服务端合成的神经音色 ----------
-    fetch('/api/tts', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: content, voice: settings.voice })
-    })
-      .then(function(r) { if (!r.ok) throw new Error('register failed'); return r.json(); })
+    requestTts(content, settings.voice)
       .then(function(d) {
-        if (!d || !d.ok || !d.id) throw new Error('register failed');
+        if (!d || !d.ok || !d.audio) throw new Error('register failed');
         if (token !== speechSeq) throw new Error('superseded'); // 已被新的朗读取代
         // 服务端回传的是**清洗后**的文本（剥离 Markdown、公式转口语）；
         // 回退朗读要用它，否则会把 "**"、"$x^2$" 这类符号念出来。
         var cleanText = (typeof d.text === 'string' && d.text) ? d.text : content;
-        var audio = new Audio('/api/tts/audio/' + d.id);
+        var audio = new Audio(URL.createObjectURL(new Blob([d.audio], { type: d.mime || 'audio/mpeg' })));
         // 语速交给播放器变速（变速不变调），不必每个语速各自合成一份
         audio.playbackRate = settings.rate;
         audioEl = audio;
@@ -619,14 +647,17 @@ export const aiCompanionScript = String.raw`
             var imgEl = document.createElement('img');
             imgEl.alt = altImg;
             imgEl.loading = 'lazy';
-            // 本地教学图片追加登录 token（<img> 无法带 header；同源 iframe 可读 localStorage）
-            if (urlImg.indexOf('/api/images/') === 0 && urlImg.indexOf('token=') === -1) {
-              try {
-                var acTk = localStorage.getItem('token');
-                if (acTk) urlImg += (urlImg.indexOf('?') === -1 ? '?' : '&') + 'token=' + encodeURIComponent(acTk);
-              } catch (e) { /* 忽略 */ }
+            // 本地教学图片：由宿主带登录态取回后以 data URL 回传（见文件上方 askHost 说明）
+            // ⛔ DO NOT REVERT 为在 URL 上拼登录令牌：iframe 已无同源权限，且登录令牌不应出现在页面脚本可及之处。
+            if (urlImg.indexOf('/api/images/') === 0) {
+              (function(el, u) {
+                askHost('image', { url: u.split('?')[0] }, 20000).then(function(d) {
+                  if (d && d.ok && d.dataUrl) el.src = d.dataUrl;
+                }, function() {});
+              })(imgEl, urlImg);
+            } else {
+              imgEl.src = urlImg;
             }
-            imgEl.src = urlImg;
             parent.appendChild(imgEl);
             i = endUrlImg + 1;
             continue;
@@ -956,6 +987,17 @@ export const aiCompanionScript = String.raw`
 
   window.addEventListener('message', function(e) {
     if (!e.data || !e.data.type) return;
+
+    if (e.data.type === 'AI_COMPANION_CONTEXT') {
+      if (e.data.speech) AC_CTX.speech = e.data.speech;
+      return;
+    }
+
+    if (e.data.type === 'AI_COMPANION_BRIDGE_RESULT') {
+      var cb = bridgePending[e.data.reqId];
+      if (cb) cb(e.data.result || { ok: false });
+      return;
+    }
 
     if (e.data.type === 'AI_COMPANION_HISTORY') {
       historyLoaded = true;
