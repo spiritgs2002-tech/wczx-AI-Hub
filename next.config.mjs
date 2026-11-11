@@ -5,7 +5,11 @@ const nextConfig = {
     ignoreDuringBuilds: true,
   },
   typescript: {
-    ignoreBuildErrors: true,
+    // MUST FAIL ON TYPE ERRORS: 构建必须阻止类型错误进入发布包；ESLint 的现有行为独立保留。
+    // 📐 CONTRACT: 交付还要单独运行 npx tsc --noEmit，不能只依赖构建结果。
+    // 🔗 RELATED: AGENTS.md §3③；package.json build（Next.js 构建入口）。
+    // ⛔ DO NOT REVERT: 以前忽略类型错误会造成“构建成功”掩盖错误，修复代码而非关闭检查。
+    ignoreBuildErrors: false,
   },
   experimental: {
     serverActions: {
