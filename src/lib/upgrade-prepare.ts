@@ -276,11 +276,14 @@ export function cleanStaging() {
   } catch {}
 }
 
-export async function prepareUpgradeFromBuffer(buffer: Buffer): Promise<PrepareUpgradeResult> {
+export async function prepareUpgradeFromBuffer(
+  buffer: Buffer,
+  options: { requireNewer?: boolean } = {}
+): Promise<PrepareUpgradeResult> {
   const tmpZipPath = path.join(os.tmpdir(), `wczx-ai-hub-upgrade-${Date.now()}.zip`);
   fs.writeFileSync(tmpZipPath, buffer);
   try {
-    return await prepareUpgradeFromZip(tmpZipPath);
+    return await prepareUpgradeFromZip(tmpZipPath, options);
   } finally {
     // 清理临时 zip
     try { fs.unlinkSync(tmpZipPath); } catch {}
