@@ -67,6 +67,8 @@ scripts/delete-all-users.ts
 
 # 环境变量（每个部署环境独立配置，不提交）
 .env
+# 自动生成的登录令牌签名密钥（见 src/lib/auth.ts），每台机器独有，禁止提交
+.auth-secret
 
 # 不跟踪分发目录（各自有独立仓库自管）
 dist-test/
