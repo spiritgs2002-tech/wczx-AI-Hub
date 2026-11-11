@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { verifyToken } from "@/lib/auth";
+import { requireTeacher, ownsSubProject } from "@/lib/api-auth";
 import { getNextUnifiedSortOrder } from "@/lib/activities/unified-order";
 
 // POST /api/preset-conversations
@@ -8,10 +8,8 @@ import { getNextUnifiedSortOrder } from "@/lib/activities/unified-order";
 // Body: { subProjectId, title, description?, systemPrompt?, analysisPrompt?, classAnalysisPrompt?, studentInsightTemplateId?, classInsightTemplateId?, enabled? }
 export async function POST(req: NextRequest) {
   try {
-    const token = req.headers.get("authorization")?.replace("Bearer ", "");
-    if (!token) return new NextResponse("未登录", { status: 401 });
-    const payload = await verifyToken(token);
-    if (!payload) return new NextResponse("登录已过期", { status: 401 });
+    const auth = await requireTeacher(req);
+    if (auth instanceof NextResponse) return auth;
 
     const body = await req.json();
     const {
@@ -30,9 +28,10 @@ export async function POST(req: NextRequest) {
     if (!subProjectId) return new NextResponse("缺少 subProjectId", { status: 400 });
     if (!title?.trim()) return new NextResponse("对话活动名称不能为空", { status: 400 });
 
-    // 校验 subProject 存在
-    const sp = await prisma.subProject.findUnique({ where: { id: subProjectId } });
-    if (!sp) return new NextResponse("子项目不存在", { status: 404 });
+    // 校验 subProject 存在且属于当前教师（⛔ DO NOT REVERT 为只查存在：否则任何登录用户都能往别人的课堂里加活动）
+    if (!(await ownsSubProject(subProjectId, auth.userId))) {
+      return new NextResponse("子项目不存在", { status: 404 });
+    }
 
     // 📐 CONTRACT: sortOrder 取跨 4 表（对话/探究/项目/作业）统一数值空间的 max+1，
     // 支撑跨类型统一排序（详见 src/lib/activities/unified-order.ts）。

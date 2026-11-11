@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { verifyToken } from "@/lib/auth";
+import { requireTeacher, ownsPresetConversation } from "@/lib/api-auth";
 
 // ══════════════════════════════════════════════════════════════════════════════
 // GET /api/preset-conversations/[id]
@@ -17,7 +17,8 @@ import { verifyToken } from "@/lib/auth";
 //   ⛔ 不要因为「列表接口里已经有这些字段了」而删掉本接口 —— 那一定是因为
 //      有人把列表瘦身回退了，请先去看上面那份契约说明，而不是删这里。
 //
-// 鉴权口径：与同目录 PUT / DELETE 保持一致（仅校验登录态，不校验归属）。
+// 鉴权口径：与同目录 PUT / DELETE 一致 —— 必须是教师（requireTeacher）且对话活动归属本人（ownsPresetConversation）。
+// ⛔ DO NOT REVERT 为“仅校验登录态”：2026-11-11 体检发现学生 token 可借此读取提示词、删除整个对话活动及全班对话记录。
 //
 // 关联：调用方 src/app/teacher/tasks/page.tsx 的 openEditConversationDialog()。
 // 维护：将来 PresetConversation 新增「长文本」字段，应加在这里返回，
@@ -29,10 +30,11 @@ export async function GET(
 ) {
   try {
     const { presetConversationId } = await params;
-    const token = req.headers.get("authorization")?.replace("Bearer ", "");
-    if (!token) return new NextResponse("未登录", { status: 401 });
-    const payload = await verifyToken(token);
-    if (!payload) return new NextResponse("登录已过期", { status: 401 });
+    const auth = await requireTeacher(req);
+    if (auth instanceof NextResponse) return auth;
+    if (!(await ownsPresetConversation(presetConversationId, auth.userId))) {
+      return new NextResponse("对话活动不存在", { status: 404 });
+    }
 
     const presetConversation = await prisma.presetConversation.findUnique({
       where: { id: presetConversationId },
@@ -54,10 +56,11 @@ export async function PUT(
 ) {
   try {
     const { presetConversationId } = await params;
-    const token = req.headers.get("authorization")?.replace("Bearer ", "");
-    if (!token) return new NextResponse("未登录", { status: 401 });
-    const payload = await verifyToken(token);
-    if (!payload) return new NextResponse("登录已过期", { status: 401 });
+    const auth = await requireTeacher(req);
+    if (auth instanceof NextResponse) return auth;
+    if (!(await ownsPresetConversation(presetConversationId, auth.userId))) {
+      return new NextResponse("对话活动不存在", { status: 404 });
+    }
 
     const body = await req.json();
     const {
@@ -107,10 +110,11 @@ export async function DELETE(
 ) {
   try {
     const { presetConversationId } = await params;
-    const token = req.headers.get("authorization")?.replace("Bearer ", "");
-    if (!token) return new NextResponse("未登录", { status: 401 });
-    const payload = await verifyToken(token);
-    if (!payload) return new NextResponse("登录已过期", { status: 401 });
+    const auth = await requireTeacher(req);
+    if (auth instanceof NextResponse) return auth;
+    if (!(await ownsPresetConversation(presetConversationId, auth.userId))) {
+      return new NextResponse("对话活动不存在", { status: 404 });
+    }
 
     // 该对话活动下的所有 Conversation
     const conversations = await prisma.conversation.findMany({

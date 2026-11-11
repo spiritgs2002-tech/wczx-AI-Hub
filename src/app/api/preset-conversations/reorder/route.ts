@@ -1,18 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { verifyToken } from "@/lib/auth";
+import { requireTeacher, ownsSubProject } from "@/lib/api-auth";
 
 // POST /api/preset-conversations/reorder
 // Body: { presetConversationId: string; direction: "up" | "down"; subProjectId: string }
 export async function POST(req: NextRequest) {
   try {
-    const token = req.headers.get("authorization")?.replace("Bearer ", "");
-    if (!token) return new NextResponse("未登录", { status: 401 });
-    const payload = await verifyToken(token);
-    if (!payload) return new NextResponse("登录已过期", { status: 401 });
+    const auth = await requireTeacher(req);
+    if (auth instanceof NextResponse) return auth;
 
     const { presetConversationId, direction, subProjectId } = await req.json();
     if (!subProjectId) return new NextResponse("缺少 subProjectId", { status: 400 });
+    // 归属校验：子项目必须属于当前教师；presetConversationId 需在该子项目的列表里（下方 findIndex 保证）
+    if (!(await ownsSubProject(subProjectId, auth.userId))) {
+      return new NextResponse("子项目不存在", { status: 404 });
+    }
 
     const items = await prisma.presetConversation.findMany({
       where: { subProjectId },
