@@ -368,6 +368,9 @@ export default function TeacherSettingsPage() {
           studentMotto: data.studentMotto || ""
         }));
 
+        // 改密码后服务端会签发新令牌（旧令牌已失效），必须写回，否则后续请求全部 401
+        if (data.token) localStorage.setItem("token", data.token);
+
         // 更新本地存储的用户信息
         const storedUser = localStorage.getItem("user");
         if (storedUser) {
