@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { createToken } from "@/lib/auth";
 import bcrypt from "bcryptjs";
+import { lockedMinutes, recordFailure, clearFailures, tooManyAttemptsMessage } from "@/lib/rate-limit";
 
 // ⛔ DO NOT ADD BACK：此处原有登录上报函数，每次教师登录都把姓名、手机号、邮箱、学校以明文 HTTP 发到第三方站点
 //   （原作者的 maoyouhui.org，注释却写“匿名上报”，且留空环境变量也关不掉）。学校场景涉及个人信息保护，2026-11-11 移除。
@@ -18,10 +19,18 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // 失败次数限制（⛔ DO NOT REMOVE：防暴力猜解，见 src/lib/rate-limit.ts）
+    const rlKey = `login:${String(phone).trim()}`;
+    const waitMin = lockedMinutes(rlKey);
+    if (waitMin > 0) {
+      return NextResponse.json({ error: tooManyAttemptsMessage(waitMin) }, { status: 429 });
+    }
+
     const user = await prisma.user.findFirst({
       where: { phone },
     });
     if (!user || !user.password) {
+      recordFailure(rlKey);
       return NextResponse.json(
         { error: "手机号或密码错误" },
         { status: 401 }
@@ -30,11 +39,14 @@ export async function POST(req: NextRequest) {
 
     const valid = await bcrypt.compare(password, user.password);
     if (!valid) {
+      recordFailure(rlKey);
       return NextResponse.json(
         { error: "手机号或密码错误" },
         { status: 401 }
       );
     }
+
+    clearFailures(rlKey);
 
     const token = await createToken({
       userId: user.id,
