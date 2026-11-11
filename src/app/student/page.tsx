@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button, Dialog, Form, Input, MessagePlugin } from "tdesign-react";
 
@@ -16,6 +16,15 @@ export default function StudentLoginPage() {
   const [pendingPayload, setPendingPayload] = useState<Record<string, string> | null>(null);
   const [pendingClasses, setPendingClasses] = useState<CandidateClass[]>([]);
   const [classSelectVisible, setClassSelectVisible] = useState(false);
+  const [form] = Form.useForm();
+
+  // 扫班级分享二维码进入时 URL 带 ?code=邀请码，自动填好，学生只需输入姓名。
+  // ⚠️ GOTCHA：本页是静态预渲染页，用 window.location 读参数，不要换成 useSearchParams（需额外 Suspense 包裹）。
+  // 🔗 RELATED：二维码地址由 src/app/teacher/classes/page.tsx 的 getStudentEntryUrl 生成，参数名 code 两边必须一致。
+  useEffect(() => {
+    const code = new URLSearchParams(window.location.search).get("code");
+    if (code) form.setFieldsValue({ inviteCode: code.trim() });
+  }, [form]);
 
   const doLogin = async (payload: Record<string, string>) => {
     setLoading(true);
@@ -78,7 +87,7 @@ export default function StudentLoginPage() {
           QuickClass Agent
         </p>
 
-        <Form onSubmit={handleSubmit}>
+        <Form form={form} onSubmit={handleSubmit}>
           <Form.FormItem name="name">
             <Input placeholder="姓名" size="large" />
           </Form.FormItem>

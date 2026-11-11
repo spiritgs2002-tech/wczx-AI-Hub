@@ -14,6 +14,7 @@ import {
   Select,
   Switch,
   Tooltip,
+  QRCode,
 } from "tdesign-react";
 import { copyText } from "@/lib/clipboard";
 import { AddIcon, ShareIcon, CopyIcon, DeleteIcon, CheckCircleIcon, UserIcon, UploadIcon, FileIcon, EditIcon } from "tdesign-icons-react";
@@ -38,6 +39,9 @@ export default function TeacherClassesPage() {
   const [deleteVisible, setDeleteVisible] = useState(false);
   const [deleteClass, setDeleteClass] = useState<ClassItem | null>(null);
   const [shareClass, setShareClass] = useState<ClassItem | null>(null);
+  // 分享弹窗用：教师在 localhost 打开时，从服务端取本机局域网 IP 供二维码使用
+  const [lanIps, setLanIps] = useState<{ ip: string; iface: string }[]>([]);
+  const [shareIp, setShareIp] = useState("");
   const [loading, setLoading] = useState(false);
   const [formIsCurrent, setFormIsCurrent] = useState(false);
   const [formOpenInviteCode, setFormOpenInviteCode] = useState(false);
@@ -102,21 +106,49 @@ export default function TeacherClassesPage() {
     }
   };
 
-  const handleShare = (cls: ClassItem) => {
+  const isLocalHost = () =>
+    typeof window !== "undefined" &&
+    (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1");
+
+  /**
+   * 学生入口完整地址（二维码与复制文本共用，带 ?code= 让学生入口页自动填好邀请码）
+   * ⚠️ GOTCHA：教师在 localhost 打开时不能直接用 window.location.origin —— 学生手机扫到 localhost 打不开，
+   *   必须换成 /api/system/lan-address 返回的本机局域网 IP；取不到 IP 时返回空串，界面提示手动处理。
+   * 🔗 RELATED：src/app/student/page.tsx 读取 ?code= 预填邀请码；src/app/api/system/lan-address/route.ts。
+   */
+  const getStudentEntryUrl = (cls: ClassItem | null) => {
+    if (!cls || typeof window === "undefined") return "";
+    let origin = window.location.origin;
+    if (isLocalHost()) {
+      if (!shareIp) return "";
+      origin = `${window.location.protocol}//${shareIp}${window.location.port ? ":" + window.location.port : ""}`;
+    }
+    return `${origin}/student?code=${encodeURIComponent(cls.inviteCode)}`;
+  };
+
+  const handleShare = async (cls: ClassItem) => {
     setShareClass(cls);
     setShareVisible(true);
+    if (!isLocalHost() || lanIps.length > 0) return;
+    try {
+      const token = localStorage.getItem("token");
+      const res = await fetch("/api/system/lan-address", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      const list: { ip: string; iface: string }[] = data.addresses || [];
+      setLanIps(list);
+      if (list.length > 0) setShareIp(list[0].ip);
+    } catch {
+      // 取不到局域网 IP 时，弹窗会提示教师用局域网地址打开后台再分享
+    }
   };
 
   const handleCopyShareText = async () => {
     if (!shareClass) return;
-    const hostname = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-      ? '【请改成您的IP地址】'
-      : window.location.hostname;
-    const port = window.location.port;
-    const baseUrl = hostname === 'localhost' || hostname === '127.0.0.1'
-      ? hostname + ':' + port
-      : window.location.origin;
-    let text = `【${shareClass.name}】AI学习助手\n\n请点击链接进入：${baseUrl}/student\n邀请码：${shareClass.inviteCode}\n\n`;
+    const entryUrl = getStudentEntryUrl(shareClass) || "【请改成您的IP地址】:3000/student";
+    let text = `【${shareClass.name}】AI学习助手\n\n请点击链接进入（或扫描二维码）：${entryUrl}\n邀请码：${shareClass.inviteCode}\n\n`;
     if (shareClass.openInviteCode) {
       text += `输入姓名和邀请码即可开始与AI对话学习！`;
     } else {
@@ -600,7 +632,31 @@ export default function TeacherClassesPage() {
       >
         {shareClass && (
           <div className="space-y-4">
-            <p className="text-[var(--muted)] text-sm">将以下信息发给学生，学生即可通过邀请码加入班级并开始AI对话学习。</p>
+            <p className="text-[var(--muted)] text-sm">学生用手机扫描二维码即可进入（邀请码已自动填好），也可以把下方信息发给学生。</p>
+            <div className="flex flex-col items-center gap-2">
+              {getStudentEntryUrl(shareClass) ? (
+                <>
+                  <QRCode value={getStudentEntryUrl(shareClass)} size={200} level="M" borderless={false} />
+                  <span className="text-xs text-[var(--muted)] break-all text-center">{getStudentEntryUrl(shareClass)}</span>
+                </>
+              ) : (
+                <div className="text-xs text-[var(--warning)] text-center p-3">
+                  未获取到本机局域网地址，无法生成二维码。请用「http://本机IP:3000」打开教师后台后再分享。
+                </div>
+              )}
+              {isLocalHost() && lanIps.length > 1 && (
+                <div className="flex items-center gap-2 text-xs">
+                  <span className="text-[var(--muted)]">本机有多个网络地址，请选学生所在网络：</span>
+                  <Select
+                    size="small"
+                    style={{ width: 200 }}
+                    value={shareIp}
+                    onChange={(v) => setShareIp(String(v))}
+                    options={lanIps.map((a) => ({ label: `${a.ip}（${a.iface}）`, value: a.ip }))}
+                  />
+                </div>
+              )}
+            </div>
             <div className="bg-[var(--hover-bg)] rounded-lg p-4 space-y-3">
               <div className="flex items-center justify-between">
                 <span className="text-sm text-[var(--muted)]">班级名称</span>
@@ -608,7 +664,7 @@ export default function TeacherClassesPage() {
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm text-[var(--muted)]">学生入口</span>
-                <span className="font-medium text-[var(--primary)]">{window.location.origin}/student</span>
+                <span className="font-medium text-[var(--primary)]">{(getStudentEntryUrl(shareClass) || window.location.origin + "/student").replace(/\?code=.*$/, "")}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm text-[var(--muted)]">邀请码</span>
@@ -623,7 +679,7 @@ export default function TeacherClassesPage() {
             <div className="bg-[var(--primary-light)] rounded-lg p-3 text-sm text-[var(--primary)]">
               <p className="font-medium mb-1">学生操作步骤：</p>
               <ol className="list-decimal list-inside space-y-0.5 text-[var(--primary)]">
-                <li>打开浏览器，访问上方链接</li>
+                <li>手机扫描二维码，或在浏览器访问上方链接</li>
                 {shareClass.openInviteCode ? (
                   <>
                     <li>输入姓名和邀请码</li>
