@@ -53,9 +53,14 @@ export function validateFile(
   const ext = getExt(file.name);
   const mime = file.type || "";
 
+  // ⛔ DO NOT REVERT 为「扩展名或 MIME 任一合格即放行」：MIME 由浏览器上报、可伪造，
+  //   旧写法允许把 作品.html 声称成 text/plain 上传，并以 .html 扩展名落盘（2026-11-11 体检发现）。
+  // 现状：扩展名必须在白名单内（落盘扩展名与下载时的 Content-Type 都由它决定）；
+  //   MIME 只做辅助判断，不单独放行，也不因浏览器上报为空而拒绝（部分 Windows 浏览器对 docx 上报空 MIME）。
+  // 🔗 RELATED：下载接口 src/app/api/student-projects/[id]/attachments/[aid]/route.ts 按扩展名白名单决定 Content-Type 并带 nosniff。
   const extOk = rule.ext.includes(ext);
-  const mimeOk = rule.mime.includes(mime) || (category === "VIDEO" && mime.startsWith("video/"));
-  if (!extOk && !mimeOk) {
+  void mime;
+  if (!extOk) {
     return `文件类型不符合要求（类别：${category}，允许：${rule.ext.join("/")}）`;
   }
 

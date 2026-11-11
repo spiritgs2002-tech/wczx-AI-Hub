@@ -85,6 +85,8 @@ export async function GET(
       headers: {
         "Content-Type": mime,
         "Content-Disposition": disposition,
+        // 禁止浏览器嗅探内容类型：配合按扩展名白名单决定 Content-Type，防止学生上传的文件被当作 HTML/脚本执行
+        "X-Content-Type-Options": "nosniff",
         "Content-Length": String(data.length),
       },
     });

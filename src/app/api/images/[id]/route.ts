@@ -42,6 +42,7 @@ export async function GET(
     return new NextResponse(new Uint8Array(data), {
       headers: {
         "Content-Type": contentType,
+        "X-Content-Type-Options": "nosniff",
         // 图片内容对同一 id 永不变更，可长缓存
         "Cache-Control": "private, max-age=86400",
       },
