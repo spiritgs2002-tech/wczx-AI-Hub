@@ -272,7 +272,7 @@ export const aiCompanionScript = String.raw`
   // 所以学生在页面右上角改的开关 / 音色 / 语速，这里立刻生效；
   // 文本清洗由服务端统一做（/api/tts），这里只负责把原文送过去并播放。
   //
-  // **离线保底**：老师可能把 QuickClass 部署在没有外网的教室里，此时服务端合成
+  // **离线保底**：老师可能把 wczx-AI-Hub 部署在没有外网的教室里，此时服务端合成
   // 一定失败（返回 502）。这时回退到**浏览器内置朗读**（本机音色），保证"至少有声音"；
   // 回退用的文本是服务端清洗后回传的 cleanText，不会把 Markdown 符号念出来。
   // 服务端迟迟不出声（网络黑洞 / 排队卡住）由 15 秒看门狗兜底。
@@ -346,7 +346,7 @@ export const aiCompanionScript = String.raw`
     tip.__acTimer = setTimeout(function() { tip.className = 'ac-speak-err'; }, 4000);
   }
 
-  // 浏览器内置朗读（**离线保底路径**）：老师把 QuickClass 部署在没有外网的教室里时，
+  // 浏览器内置朗读（**离线保底路径**）：老师把 wczx-AI-Hub 部署在没有外网的教室里时，
   // 服务端合不出来，这里保证"至少读得出来"。
   // 挑音色只认**本机自带**的（localService === true）：名字含 Online/Natural 的微软音色
   // 其实是云端音色，没网时反而不出声，不能优先它们。

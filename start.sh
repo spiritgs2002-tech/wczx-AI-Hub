@@ -1,6 +1,6 @@
 #!/bin/bash
-# QuickClass 启动脚本 (macOS/Linux)
-# QuickClass 启动器 v2026.09.09
+# wczx-AI-Hub 启动脚本 (macOS/Linux)
+# wczx-AI-Hub 启动器 v2026.09.09
 
 set -e
 
@@ -17,7 +17,7 @@ export npm_config_registry="https://registry.npmmirror.com"
 export PRISMA_ENGINES_MIRROR="https://registry.npmmirror.com/-/binary/prisma"
 
 echo "========================================"
-echo "  QuickClass 启动器 v2026.09.09"
+echo "  wczx-AI-Hub 启动器 v2026.09.09"
 echo "  指南见 安装指南.md / readme.md"
 echo "========================================"
 
@@ -58,17 +58,17 @@ if [ -f ".upgrade-pending" ]; then
         echo "[错误] 数据库文件缺失或为空，已中止升级（数据安全优先）"
         exit 1
     fi
-    mkdir -p ../quickclass-upgrade-staging/prisma
-    cp -f "$DB_PATH" ../quickclass-upgrade-staging/prisma/dev.db
+    mkdir -p ../wczx-ai-hub-upgrade-staging/prisma
+    cp -f "$DB_PATH" ../wczx-ai-hub-upgrade-staging/prisma/dev.db
     echo "  正在覆盖文件（仅覆盖新包内容，不删除本地数据/补丁文件）..."
     # 用 /. 拷贝而非 * 通配：bash 的 * 不匹配点文件，会漏掉 .npmrc 等镜像配置
-    cp -rf ../quickclass-upgrade-staging/. . 2>/dev/null || true
+    cp -rf ../wczx-ai-hub-upgrade-staging/. . 2>/dev/null || true
     echo "  正在把数据库放回原位..."
     mkdir -p "$(dirname "$DB_PATH")"
-    cp -f ../quickclass-upgrade-staging/prisma/dev.db "$DB_PATH" 2>/dev/null || true
+    cp -f ../wczx-ai-hub-upgrade-staging/prisma/dev.db "$DB_PATH" 2>/dev/null || true
     echo "  正在清理升级标记..."
     rm -f .upgrade-pending
-    rm -rf ../quickclass-upgrade-staging
+    rm -rf ../wczx-ai-hub-upgrade-staging
     echo "  正在重新安装依赖..."
     npm install --no-audit --no-fund
     echo "  正在同步数据库结构（幂等，不清数据）..."

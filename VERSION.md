@@ -1,4 +1,4 @@
-# QuickClass 版本说明
+# wczx-AI-Hub 版本说明
 
 > 当前版本号以 `public/latest.json` 的 `version` 字段为准（设置页、版本检测、升级流程均读取该文件）。
 > 本文件只记录各版本更新历史，不再承担"当前版本号"职责。发布新版时请同步更新 `public/latest.json`，并在下方「更新日志」追加本次记录。
@@ -72,7 +72,7 @@
 ### v2026.10.09
 
 **新增功能**
-- 教师端品牌标识统一：登录页与教师端布局同时展示 `QuickClass Agent`（英文）和 `宁创教学智能体`（中文），英文突出显示
+- 教师端品牌标识统一：登录页与教师端布局同时展示 `wczx-AI-Hub Agent`（英文）和 `文昌智枢`（中文），英文突出显示
 - 交互探究数据大屏增强：支持教师手动编辑图表/KPI/排行榜、AI 一键重排风格、恢复默认布局，并在使用说明中补充「采集字段类型 → 推荐图型」对照文档
 
 **数据维护**
@@ -282,7 +282,7 @@
 - AI 伴学对话历史返回学生姓名
 
 **界面优化**
-- 系统信息：版本改为"QuickClass 开源版本"，新增邮箱
+- 系统信息：版本改为"wczx-AI-Hub 开源版本"，新增邮箱
 - 报告页：去分页（嵌入改路由），增加返回链接，去掉 TeacherLayout 重复菜单
 - 导入错误提示显示具体原因
 
@@ -360,17 +360,17 @@
 
 #### macOS / Linux
 ```bash
-./upgrade.sh ~/Downloads/quickclass-test-v20260721.zip
+./upgrade.sh ~/Downloads/wczx-ai-hub-test-v20260721.zip
 ```
 
 #### Windows (CMD)
 ```cmd
-upgrade.bat C:\Users\Downloads\quickclass-test-v20260721.zip
+upgrade.bat C:\Users\Downloads\wczx-ai-hub-test-v20260721.zip
 ```
 
 #### Windows (PowerShell)
 ```powershell
-.\upgrade.ps1 -ZipPath "C:\Downloads\quickclass-test-v20260721.zip"
+.\upgrade.ps1 -ZipPath "C:\Downloads\wczx-ai-hub-test-v20260721.zip"
 ```
 
 脚本会自动：
@@ -386,31 +386,31 @@ upgrade.bat C:\Users\Downloads\quickclass-test-v20260721.zip
 #### macOS / Linux
 ```bash
 # 1. 备份数据库
-cp prisma/dev.db ~/quickclass-backup.db
+cp prisma/dev.db ~/wczx-ai-hub-backup.db
 
 # 2. 解压新版本到新目录
-unzip quickclass-test-v20260721.zip -d quickclass-new
+unzip wczx-ai-hub-test-v20260721.zip -d wczx-ai-hub-new
 
 # 3. 迁移数据库
-cp ~/quickclass-backup.db quickclass-new/prisma/dev.db
+cp ~/wczx-ai-hub-backup.db wczx-ai-hub-new/prisma/dev.db
 
 # 4. 启动新版本
-cd quickclass-new && ./start.sh
+cd wczx-ai-hub-new && ./start.sh
 ```
 
 #### Windows
 ```cmd
 # 1. 备份数据库
-copy prisma\dev.db C:\quickclass-backup.db
+copy prisma\dev.db C:\wczx-ai-hub-backup.db
 
 # 2. 解压新版本（使用 7-Zip 或右键解压）
-# 假设解压到 C:\quickclass-new
+# 假设解压到 C:\wczx-ai-hub-new
 
 # 3. 迁移数据库
-copy C:\quickclass-backup.db C:\quickclass-new\prisma\dev.db
+copy C:\wczx-ai-hub-backup.db C:\wczx-ai-hub-new\prisma\dev.db
 
 # 4. 启动新版本
-cd C:\quickclass-new
+cd C:\wczx-ai-hub-new
 start.bat
 ```
 
@@ -448,7 +448,7 @@ start.bat
   "current": "v2026.07.21",
   "latest": "v2026.07.25",
   "hasUpdate": true,
-  "downloadUrl": "https://example.com/quickclass-v20260725.zip",
+  "downloadUrl": "https://example.com/wczx-ai-hub-v20260725.zip",
   "changelog": "..."
 }
 ```

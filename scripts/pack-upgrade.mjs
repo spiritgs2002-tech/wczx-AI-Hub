@@ -4,7 +4,7 @@
  * 
  * 用法: node scripts/pack-upgrade.mjs
  * 
- * 产物: quickclass-upgrade-v{version}.zip
+ * 产物: wczx-ai-hub-upgrade-v{version}.zip
  * 直接从源码目录打包，不使用中间目录
  * 不含 node_modules / .next / dev.db（跨平台兼容），首次启动时自动构建
  */
@@ -32,7 +32,7 @@ if (version === "unknown" && fs.existsSync(VERSION_PATH)) {
   if (m) version = m[1];
 }
 
-const zipName = `quickclass-upgrade-${version}.zip`;
+const zipName = `wczx-ai-hub-upgrade-${version}.zip`;
 const zipPath = path.join(ROOT, zipName);
 
 console.log(`📦 打包升级包`);
@@ -109,7 +109,7 @@ if [ -z "\$DB_PATH" ]; then
 fi
 
 echo "=========================================="
-echo "   QuickClass 启动器 ${version}"
+echo "   wczx-AI-Hub 启动器 ${version}"
 echo "  ${changelog}"
 echo "=========================================="
 echo ""
@@ -118,7 +118,7 @@ echo ""
 PENDING_FILE=".upgrade-pending"
 if [ -f "\$PENDING_FILE" ]; then
     echo "[升级] 检测到升级包，正在执行自动升级..."
-    STAGING_DIR=\$(python3 -c "import json; print(json.load(open('\$PENDING_FILE')).get('stagingDir',''))" 2>/dev/null || echo "../quickclass-upgrade-staging")
+    STAGING_DIR=\$(python3 -c "import json; print(json.load(open('\$PENDING_FILE')).get('stagingDir',''))" 2>/dev/null || echo "../wczx-ai-hub-upgrade-staging")
     echo "  备份数据库 (\$DB_PATH) ..."
     if [ ! -f "\$DB_PATH" ] || [ ! -s "\$DB_PATH" ]; then
         echo "[错误] 数据库文件缺失或为空，已中止升级（数据安全优先）"
@@ -222,7 +222,7 @@ if not defined DB_PATH (\r
 )\r
 \r
 echo ========================================\r
-echo   QuickClass 启动器 ${version}\r
+echo   wczx-AI-Hub 启动器 ${version}\r
 echo   更新日志见 quickstart.txt\r
 echo ========================================\r
 \r
@@ -234,17 +234,17 @@ if exist ".upgrade-pending" (\r
         echo   [错误] 数据库文件缺失或为空，已中止升级（数据安全优先）\r
         exit /b 1\r
     )\r
-    if not exist "..\\quickclass-upgrade-staging\\prisma" mkdir "..\\quickclass-upgrade-staging\\prisma" >nul 2>&1\r
-    copy "%DB_PATH%" "..\\quickclass-upgrade-staging\\prisma\\dev.db" >nul 2>&1\r
+    if not exist "..\\wczx-ai-hub-upgrade-staging\\prisma" mkdir "..\\wczx-ai-hub-upgrade-staging\\prisma" >nul 2>&1\r
+    copy "%DB_PATH%" "..\\wczx-ai-hub-upgrade-staging\\prisma\\dev.db" >nul 2>&1\r
     echo   正在覆盖文件（不删除本地数据文件）...\r
-    xcopy "..\\quickclass-upgrade-staging" . /E /Y /Q >nul 2>&1\r
+    xcopy "..\\wczx-ai-hub-upgrade-staging" . /E /Y /Q >nul 2>&1\r
     echo   正在把数据库放回原位...\r
     for %%p in ("%DB_PATH%") do set "DB_DIR=%%~dpp"\r
     if not exist "!DB_DIR!" mkdir "!DB_DIR!" >nul 2>&1\r
-    copy "..\\quickclass-upgrade-staging\\prisma\\dev.db" "%DB_PATH%" >nul 2>&1\r
+    copy "..\\wczx-ai-hub-upgrade-staging\\prisma\\dev.db" "%DB_PATH%" >nul 2>&1\r
     echo   正在清理升级标记...\r
     del /F /Q ".upgrade-pending" >nul 2>&1\r
-    rmdir /S /Q "..\\quickclass-upgrade-staging" >nul 2>&1\r
+    rmdir /S /Q "..\\wczx-ai-hub-upgrade-staging" >nul 2>&1\r
     echo   正在重新安装依赖...\r
     call npm install --no-audit --no-fund\r
     rem 数据库结构增量同步（幂等，不清数据），新版本表结构自动应用\r
@@ -329,15 +329,15 @@ fs.writeFileSync(path.join(tmpDir, "stop.sh"), `#!/bin/bash
 PID=$(lsof -ti:3000 2>/dev/null)
 if [ -n "$PID" ]; then
     kill -9 $PID
-    echo "QuickClass 已停止"
+    echo "wczx-AI-Hub 已停止"
 else
-    echo "未发现运行中的 QuickClass"
+    echo "未发现运行中的 wczx-AI-Hub"
 fi
 `, { mode: 0o755 });
 
 // --- 快速上手.txt ---
 const quickstart = `==========================================
-   QuickClass 测试版 ${version}
+   wczx-AI-Hub 测试版 ${version}
    ${changelog}
 ==========================================
 
@@ -416,8 +416,8 @@ console.log(`   大小: ${sizeMB} MB`);
 console.log("");
 console.log("📖 使用方式：");
 console.log("   1. 将升级包分发给用户");
-console.log("   2. 用户进入 QuickClass → 系统设置 → 系统升级");
+console.log("   2. 用户进入 wczx-AI-Hub → 系统设置 → 系统升级");
 console.log("   3. 上传此 zip 文件");
-console.log("   4. 重启 QuickClass 服务");
+console.log("   4. 重启 wczx-AI-Hub 服务");
 console.log("   5. 启动脚本会自动完成升级（数据库保留）");
 console.log("");

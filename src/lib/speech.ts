@@ -387,7 +387,7 @@ export function textToSpeechText(markdown: string): string {
 // speechSynthesis 若不指定 voice，会用系统默认音色，质量完全取决于客户端环境：
 // 有的机器落到微软老式 SAPI（Microsoft David / Huihui 等）甚至 Linux 的 eSpeak。
 //
-// 这里挑音色的目标**不是"最好听"，而是"最可能出得了声"**（老师可能把 QuickClass
+// 这里挑音色的目标**不是"最好听"，而是"最可能出得了声"**（老师可能把 wczx-AI-Hub
 // 部署在没有外网的教室里）：
 //   ① 先用 `localService === true` 滤出**本机自带**的音色 —— 这类音色离线可用
 //   ② 再按下面的关键词顺序匹配常见中文音色

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 定位 QuickClass 当前真实使用的 SQLite 数据库绝对路径
+ * 定位 wczx-AI-Hub 当前真实使用的 SQLite 数据库绝对路径
  *
  * 为什么需要它：
  *   历史版本中，启动脚本(.env)、启动器(start.sh/start.bat)与升级脚本对
@@ -14,7 +14,7 @@
  *   3. 输出真实数据库文件的绝对路径；无法定位时向 stderr 报错并以退出码 2 结束。
  *
  * 用法（需在项目根目录运行）：
- *   DB_PATH=$(node scripts/db-locate.mjs)        # 输出如 /xx/quickclass/prisma/dev.db
+ *   DB_PATH=$(node scripts/db-locate.mjs)        # 输出如 /xx/wczx-ai-hub/prisma/dev.db
  *   node scripts/db-locate.mjs || echo "定位失败"
  */
 
@@ -74,7 +74,7 @@ function fail(msg) {
 // 1. 数据库 URL：以 .env 为准，缺失则用官方默认
 const dbUrl = (readEnvKey(path.join(ROOT, ".env"), "DATABASE_URL") || "file:./dev.db").trim();
 
-// 2. 仅支持 SQLite 的 file: 协议（QuickClass 数据源固定为 sqlite）
+// 2. 仅支持 SQLite 的 file: 协议（wczx-AI-Hub 数据源固定为 sqlite）
 if (!dbUrl.startsWith("file:")) {
   fail(`DATABASE_URL 不是 file: 协议（当前: ${dbUrl}），本工具仅支持 SQLite 数据库`);
 }

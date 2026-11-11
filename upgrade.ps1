@@ -1,5 +1,5 @@
-# QuickClass 升级脚本 (PowerShell)
-# 用法: .\upgrade.ps1 -ZipPath "C:\Downloads\quickclass-test-v20260721.zip"
+# wczx-AI-Hub 升级脚本 (PowerShell)
+# 用法: .\upgrade.ps1 -ZipPath "C:\Downloads\wczx-ai-hub-test-v20260721.zip"
 
 param(
     [Parameter(Mandatory=$true, HelpMessage="新版本 zip 文件路径")]
@@ -7,7 +7,7 @@ param(
 )
 
 Write-Host "==========================================" -ForegroundColor Cyan
-Write-Host "  QuickClass 升级工具 (PowerShell)" -ForegroundColor Cyan
+Write-Host "  wczx-AI-Hub 升级工具 (PowerShell)" -ForegroundColor Cyan
 Write-Host "==========================================" -ForegroundColor Cyan
 Write-Host ""
 
@@ -41,7 +41,7 @@ if ($confirm -ne "y" -and $confirm -ne "Y") {
 Write-Host ""
 Write-Host "[1/6] 备份当前数据库..." -ForegroundColor Yellow
 
-$BackupDir = Join-Path (Split-Path (Get-Location) -Parent) "quickclass-backups"
+$BackupDir = Join-Path (Split-Path (Get-Location) -Parent) "wczx-ai-hub-backups"
 if (-not (Test-Path $BackupDir)) {
     New-Item -ItemType Directory -Path $BackupDir -Force | Out-Null
 }
@@ -96,7 +96,7 @@ if ($nodeProcess) {
 Write-Host ""
 Write-Host "[3/6] 解压新版本..." -ForegroundColor Yellow
 
-$TempDir = Join-Path $env:TEMP "quickclass-upgrade-$Timestamp"
+$TempDir = Join-Path $env:TEMP "wczx-ai-hub-upgrade-$Timestamp"
 if (Test-Path $TempDir) {
     Remove-Item $TempDir -Recurse -Force
 }

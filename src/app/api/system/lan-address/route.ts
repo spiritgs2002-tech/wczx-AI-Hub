@@ -6,7 +6,7 @@ import { verifyToken } from "@/lib/auth";
 export const dynamic = "force-dynamic";
 
 /**
- * GET /api/system/lan-address —— 返回本机（运行 QuickClass 的教师电脑）的局域网 IPv4 地址
+ * GET /api/system/lan-address —— 返回本机（运行 wczx-AI-Hub 的教师电脑）的局域网 IPv4 地址
  *
  * 为什么需要：教师通常在本机用 http://localhost:3000 打开后台，浏览器拿不到本机局域网 IP，
  *   班级分享弹窗里的二维码 / 分享文本若用 localhost，学生手机扫码根本打不开。

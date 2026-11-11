@@ -1,6 +1,6 @@
 # Vendor 说明：quickform-core
 
-本目录是 **QuickForm 核心 SDK** 的 vendor 副本，随 QuickClass 源码一起分发。
+本目录是 **QuickForm 核心 SDK** 的 vendor 副本，随 wczx-AI-Hub 源码一起分发。
 
 | 项 | 值 |
 |---|---|
@@ -11,7 +11,7 @@
 
 ## 只读约定
 
-**本目录在 QuickClass 仓内只读，禁止手改。** 需要改 SDK 时：
+**本目录在 wczx-AI-Hub 仓内只读，禁止手改。** 需要改 SDK 时：
 
 1. 到源仓（quickform-core）修改 + 补单测
 2. 打新 tag

@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 /**
- * QuickClass 发布打包脚本
+ * wczx-AI-Hub 发布打包脚本
  * 用法: node scripts/pack-release.mjs
  * 功能:
  *   1. 生成 start.bat / start.sh / stop.sh
  *   2. 同步到跨平台安装包目录
- *   3. 自动提交并推送 quickclass-release 仓库
+ *   3. 自动提交并推送 wczx-ai-hub-release 仓库
  *
  * 注意：此脚本不打包 zip，用户从 Gitee 仓库页下载 ZIP
  */
@@ -64,14 +64,14 @@ function checkMsedgeTts() {
 checkMsedgeTts();
 
 console.log('==========================================');
-console.log(`  QuickClass 发布打包`);
+console.log(`  wczx-AI-Hub 发布打包`);
 console.log(`  ${version} - ${changelog}`);
 console.log('==========================================\n');
 
 // 检查跨平台安装包目录是否存在
 if (!existsSync(RELEASE_DIR)) {
   console.error(`[错误] 跨平台安装包目录不存在: ${RELEASE_DIR}`);
-  console.error('请确保该目录存在（即 quickclass-release 仓库的工作目录）');
+  console.error('请确保该目录存在（即 wczx-ai-hub-release 仓库的工作目录）');
   process.exit(1);
 }
 
@@ -97,7 +97,7 @@ set "npm_config_registry=https://registry.npmmirror.com"\r
 set "PRISMA_ENGINES_MIRROR=https://registry.npmmirror.com/-/binary/prisma"\r
 \r
 echo ========================================\r
-echo   QuickClass 启动器 ${version}\r
+echo   wczx-AI-Hub 启动器 ${version}\r
 echo   使用指南见 使用指南.md\r
 echo ========================================\r
 \r
@@ -105,12 +105,12 @@ rem 检测并应用待处理的升级\r
 if exist ".upgrade-pending" (\r
     echo [升级] 检测到待处理的升级，正在应用...\r
     echo   正在备份数据库...\r
-    if exist "prisma\\dev.db" copy "prisma\\dev.db" "..\\quickclass-upgrade-staging\\prisma\\dev.db" >nul 2>&1\r
+    if exist "prisma\\dev.db" copy "prisma\\dev.db" "..\\wczx-ai-hub-upgrade-staging\\prisma\\dev.db" >nul 2>&1\r
     echo   正在覆盖文件...\r
-    xcopy "..\\quickclass-upgrade-staging" . /E /Y /Q >nul 2>&1\r
+    xcopy "..\\wczx-ai-hub-upgrade-staging" . /E /Y /Q >nul 2>&1\r
     echo   正在清理升级标记...\r
     del /F /Q ".upgrade-pending" >nul 2>&1\r
-    rmdir /S /Q "..\\quickclass-upgrade-staging" >nul 2>&1\r
+    rmdir /S /Q "..\\wczx-ai-hub-upgrade-staging" >nul 2>&1\r
     echo   正在重新安装依赖...\r
     call npm install --no-audit --no-fund\r
     echo   正在重新构建...\r
@@ -220,8 +220,8 @@ console.log('  start.bat 已生成（UTF-8 + CRLF，chcp 65001 保证中文显�
 console.log('[2/5] 生成 start.sh...');
 
 const startSh = `#!/bin/bash
-# QuickClass 启动脚本 (macOS/Linux)
-# QuickClass 启动器 ${version}
+# wczx-AI-Hub 启动脚本 (macOS/Linux)
+# wczx-AI-Hub 启动器 ${version}
 
 set -e
 
@@ -232,7 +232,7 @@ export npm_config_registry="https://registry.npmmirror.com"
 export PRISMA_ENGINES_MIRROR="https://registry.npmmirror.com/-/binary/prisma"
 
 echo "========================================"
-echo "  QuickClass 启动器 ${version}"
+echo "  wczx-AI-Hub 启动器 ${version}"
 echo "  使用指南见 使用指南.md"
 echo "========================================"
 
@@ -240,13 +240,13 @@ echo "========================================"
 if [ -f ".upgrade-pending" ]; then
     echo "[升级] 检测到待处理的升级，正在应用..."
     echo "  正在备份数据库..."
-    [ -f "prisma/dev.db" ] && cp prisma/dev.db ../quickclass-upgrade-staging/prisma/dev.db 2>/dev/null || true
+    [ -f "prisma/dev.db" ] && cp prisma/dev.db ../wczx-ai-hub-upgrade-staging/prisma/dev.db 2>/dev/null || true
     echo "  正在覆盖文件..."
     # 用 /. 拷贝而非 * 通配：bash 的 * 不匹配点文件，会漏掉 .npmrc 等镜像配置
-    cp -rf ../quickclass-upgrade-staging/. . 2>/dev/null || true
+    cp -rf ../wczx-ai-hub-upgrade-staging/. . 2>/dev/null || true
     echo "  正在清理升级标记..."
     rm -f .upgrade-pending
-    rm -rf ../quickclass-upgrade-staging
+    rm -rf ../wczx-ai-hub-upgrade-staging
     echo "  正在重新安装依赖..."
     npm install --no-audit --no-fund
     echo "  正在重新构建..."
@@ -331,9 +331,9 @@ const stopSh = `#!/bin/bash
 PID=$(lsof -ti:3000 2>/dev/null)
 if [ -n "$PID" ]; then
     kill -9 $PID
-    echo "QuickClass 已停止"
+    echo "wczx-AI-Hub 已停止"
 else
-    echo "未发现运行中的 QuickClass"
+    echo "未发现运行中的 wczx-AI-Hub"
 fi
 `;
 

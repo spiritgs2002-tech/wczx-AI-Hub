@@ -40,7 +40,7 @@ export interface RealReferenceCandidate {
 
 const CROSSREF_HEADERS = {
   "User-Agent":
-    "QuickClass-ReferenceFetcher/1.0 (mailto:support@quickclass.local)",
+    "wczx-AI-Hub-ReferenceFetcher/1.0 (mailto:support@wczx-ai-hub.local)",
   Accept: "application/json",
 };
 

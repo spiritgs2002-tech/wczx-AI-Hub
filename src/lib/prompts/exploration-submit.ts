@@ -17,7 +17,7 @@ declare global {
  * 提交按钮 CSS 样式
  */
 export const submitButtonCSS = `
-#quickclass-submit-root #submitBtn {
+#wczx-ai-hub-submit-root #submitBtn {
   position: fixed;
   bottom: 30px;
   left: 30px;
@@ -32,8 +32,8 @@ export const submitButtonCSS = `
   z-index: 10000;
   font-weight: bold;
 }
-#quickclass-submit-root #submitBtn:hover { background: #C44050; }
-#quickclass-submit-root #submitBtn:disabled { background: #ccc; cursor: not-allowed; }
+#wczx-ai-hub-submit-root #submitBtn:hover { background: #C44050; }
+#wczx-ai-hub-submit-root #submitBtn:disabled { background: #ccc; cursor: not-allowed; }
 `.trim();
 
 export const submitMessageScript = `
@@ -358,7 +358,7 @@ if (typeof window.recordAction !== "function") {
 /**
  * 提交按钮 HTML
  */
-export const submitButtonHTML = `<div id="quickclass-submit-root"><button id="submitBtn" onclick="submitResults()">提交</button></div>`;
+export const submitButtonHTML = `<div id="wczx-ai-hub-submit-root"><button id="submitBtn" onclick="submitResults()">提交</button></div>`;
 
 /* ==========================================================================
  * QuickForm 采集块（Part 1）
@@ -377,8 +377,8 @@ export const submitButtonHTML = `<div id="quickclass-submit-root"><button id="su
  */
 
 /** 采集块的起止标记：整块可替换、可移除，重复注入幂等 */
-export const QF_BLOCK_BEGIN = "<!--QUICKCLASS-QF-BEGIN-->";
-export const QF_BLOCK_END = "<!--QUICKCLASS-QF-END-->";
+export const QF_BLOCK_BEGIN = "<!--WCZX-AI-HUB-QF-BEGIN-->";
+export const QF_BLOCK_END = "<!--WCZX-AI-HUB-QF-END-->";
 
 export const qfCollectScript = `
 // ===== QuickForm 探究记录采集（自动扫描 + 通用面板）=====
@@ -400,7 +400,7 @@ function qfSkip(el) {
   }
   if (el.disabled) return true;
   if (el.getAttribute("data-qf-skip") !== null) return true;
-  if (el.closest && el.closest("#quickclass-submit-root")) return true;
+  if (el.closest && el.closest("#wczx-ai-hub-submit-root")) return true;
   return false;
 }
 
@@ -692,7 +692,7 @@ export function injectSubmitFunctionality(
   }
 
   // 3. 注入 CSS（如果未注入过提交功能）
-  if (!modified.includes("quickclass-submit-root")) {
+  if (!modified.includes("wczx-ai-hub-submit-root")) {
     if (modified.includes("</head>")) {
       modified = modified.replace("</head>", "<style>" + submitButtonCSS + "</style></head>");
     } else if (modified.includes("<body")) {
@@ -741,7 +741,7 @@ export function injectSubmitFunctionality(
 
   // 6. 检查是否已有提交按钮（通过 root 包裹层判断）
   var finalBtnHtml = suffix ? submitButtonHTML.replace(/submitResults/g, "submitResults" + suffix) : submitButtonHTML;
-  if (!modified.includes('<div id="quickclass-submit-root"')) {
+  if (!modified.includes('<div id="wczx-ai-hub-submit-root"')) {
     if (modified.includes("</body>")) {
       modified = modified.replace("</body>", finalBtnHtml + "</body>");
     } else {
@@ -781,7 +781,7 @@ export function removeSubmitFunctionality(html: string): string {
   let modified = removeQfCollectBlock(html);
 
   // 移除提交按钮包裹层（新版）或独立按钮（旧版兼容）
-  const rootIdx = modified.indexOf('id="quickclass-submit-root"');
+  const rootIdx = modified.indexOf('id="wczx-ai-hub-submit-root"');
   if (rootIdx > -1) {
     let divStart = rootIdx;
     while (divStart > 0 && modified.substring(divStart, divStart + 4) !== '<div') divStart--;
@@ -795,7 +795,7 @@ export function removeSubmitFunctionality(html: string): string {
   modified = modified.replace(/<button[^>]*id=["']submitBtn["'][^>]*>.*?<\/button>/gi, "");
 
   // 移除提交按钮CSS（新版style标签 + 旧版单规则兼容）
-  modified = modified.replace(/<style>\s*#quickclass-submit-root[\s\S]*?<\/style>/gi, "");
+  modified = modified.replace(/<style>\s*#wczx-ai-hub-submit-root[\s\S]*?<\/style>/gi, "");
   modified = modified.replace(/#submitBtn\{[^}]*\}/g, "");
 
   // 移除提交函数 submitResults

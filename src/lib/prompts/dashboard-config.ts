@@ -47,7 +47,7 @@ export type AiChartType =
 export type AiDashboardTheme = "blue" | "teal" | "green" | "amber";
 
 export const ALLOWED_THEMES: AiDashboardTheme[] = ["blue", "teal", "green", "amber"];
-/** 默认强调色：QuickClass 品牌蓝 */
+/** 默认强调色：wczx-AI-Hub 品牌蓝 */
 export const DEFAULT_THEME: AiDashboardTheme = "blue";
 
 export interface AiDashboardChart {

@@ -90,7 +90,7 @@ export interface ListTasksOpts {
 
 /**
  * 存储适配器契约 —— SDK 内部只依赖此接口，不依赖具体存储。
- * 默认实现：MemoryAdapter（测试/参考）。QuickClass 内置时实现 PrismaAdapter（见 docs/prisma-adapter.md）。
+ * 默认实现：MemoryAdapter（测试/参考）。wczx-AI-Hub 内置时实现 PrismaAdapter（见 docs/prisma-adapter.md）。
  * 所有方法均为异步（Prisma 等真实存储天然异步）。
  */
 export interface StorageAdapter {

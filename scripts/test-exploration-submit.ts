@@ -220,7 +220,7 @@ console.log("\n[用例 G] 注入幂等性（二次注入不重复）");
   const r1 = injectSubmitFunctionality(html, ctx);
   const r2 = injectSubmitFunctionality(r1.html, ctx);
   const count = (s: string, sub: string) => s.split(sub).length - 1;
-  assert(count(r2.html, 'id="quickclass-submit-root"') === 1, "提交按钮唯一");
+  assert(count(r2.html, 'id="wczx-ai-hub-submit-root"') === 1, "提交按钮唯一");
   assert(count(r2.html, "function submitResults") === 1, "submitResults 定义唯一");
   assert(count(r2.html, "window.__explorationData__ =") === 1, "追踪初始化唯一");
   assert(count(r2.html, "qfCollectAnswers") >= 1, "QuickForm 块剥离重注（幂等）");

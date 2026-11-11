@@ -12,9 +12,9 @@
 
 | 仓库 | 平台 | 角色 | 说明 |
 |---|---|---|---|
-| 私有仓库 | `https://gitee.com/maoyouhui/quickclass-private.git` | 项目负责人 | 日常开发与个人备份，本地 `dev` 的上游指向这里 |
-| Gitee 仓库 | `https://gitee.com/maoyouhui/quickclass-release.git` | 国内用户 + 合作者 | 发布仓库：合作者贡献汇聚在 `dev`，国内发布走 `main` |
-| GitHub 仓库 | `https://github.com/makerguan/quickclass-release.git` | 国际用户 | 国际版仓库，只发布稳定版本 |
+| 私有仓库 | `https://github.com/spiritgs2002-tech/wczx-AI-Hub.git` | 项目负责人 | 日常开发与个人备份，本地 `dev` 的上游指向这里 |
+| Gitee 仓库 | `https://github.com/spiritgs2002-tech/wczx-AI-Hub.git` | 国内用户 + 合作者 | 发布仓库：合作者贡献汇聚在 `dev`，国内发布走 `main` |
+| GitHub 仓库 | `https://github.com/spiritgs2002-tech/wczx-AI-Hub.git` | 国际用户 | 国际版仓库，只发布稳定版本 |
 
 **设计原因：**
 - 私有仓库是负责人的"草稿区"：日常开发随时推送备份，不影响任何人，也不污染发布仓库。
@@ -47,12 +47,12 @@
 ```bash
 $ git remote -v
 
-private         https://gitee.com/maoyouhui/quickclass-private.git (fetch)
-private         https://gitee.com/maoyouhui/quickclass-private.git (push)
-origin          https://gitee.com/maoyouhui/quickclass-release.git (fetch)
-origin          https://gitee.com/maoyouhui/quickclass-release.git (push)
-github-release  https://github.com/makerguan/quickclass-release.git (fetch)
-github-release  https://github.com/makerguan/quickclass-release.git (push)
+private         https://github.com/spiritgs2002-tech/wczx-AI-Hub.git (fetch)
+private         https://github.com/spiritgs2002-tech/wczx-AI-Hub.git (push)
+origin          https://github.com/spiritgs2002-tech/wczx-AI-Hub.git (fetch)
+origin          https://github.com/spiritgs2002-tech/wczx-AI-Hub.git (push)
+github-release  https://github.com/spiritgs2002-tech/wczx-AI-Hub.git (fetch)
+github-release  https://github.com/spiritgs2002-tech/wczx-AI-Hub.git (push)
 ```
 
 - `private`：私有开发仓库（负责人日常 `dev` 推送；⚠️ 注意 `origin` **不是**私有仓库）
@@ -75,10 +75,10 @@ github-release  https://github.com/makerguan/quickclass-release.git (push)
 
 ```bash
 # 克隆项目
-git clone https://gitee.com/maoyouhui/quickclass-release.git
+git clone https://github.com/spiritgs2002-tech/wczx-AI-Hub.git
 
 # 进入项目目录
-cd quickclass-release
+cd wczx-ai-hub-release
 
 # 切换到 dev 分支
 git checkout dev
@@ -150,11 +150,11 @@ git push origin dev
 ```bash
 # 查待合并的 PR
 curl -s -H "Authorization: Bearer $GITEE_TOKEN" \
-  "https://gitee.com/api/v5/repos/maoyouhui/quickclass-release/pulls?state=open"
+  "https://api.github.com/repos/spiritgs2002-tech/wczx-AI-Hub/pulls?state=open"
 
 # 合并某个 PR（<编号> 换成上面的 PR 编号）
 curl -s -X PUT -H "Authorization: Bearer $GITEE_TOKEN" \
-  "https://gitee.com/api/v5/repos/maoyouhui/quickclass-release/pulls/<编号>/merge"
+  "https://api.github.com/repos/spiritgs2002-tech/wczx-AI-Hub/pulls/<编号>/merge"
 ```
 
 `GITEE_TOKEN` 获取：Gitee → 设置 → 私人令牌 → 新建令牌，勾选仓库读写（`projects`）权限；在本机设为环境变量即可（Windows：`setx GITEE_TOKEN "你的令牌"`），**不要提交到仓库**。

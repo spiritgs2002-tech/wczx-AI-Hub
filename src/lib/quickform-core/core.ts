@@ -1,11 +1,11 @@
 /**
  * QuickFormCore —— quickform-core SDK 主类（接口契约冻结 v1）
  *
- * 只管数据：任务 CRUD + 数据写入/查询/计数/导出。不管展示（大屏由 QuickClass 侧 AI 生成，
+ * 只管数据：任务 CRUD + 数据写入/查询/计数/导出。不管展示（大屏由 wczx-AI-Hub 侧 AI 生成，
  * 通过 getTaskSchema + listRecords 两个接口对接）。
  *
  * 用法：
- *   const core = new QuickFormCore(new PrismaAdapter(prisma)); // QuickClass 内置
+ *   const core = new QuickFormCore(new PrismaAdapter(prisma)); // wczx-AI-Hub 内置
  *   const core = new QuickFormCore(new MemoryAdapter());       // 测试
  */
 import type {

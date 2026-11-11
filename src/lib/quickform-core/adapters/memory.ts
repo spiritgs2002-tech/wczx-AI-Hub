@@ -1,6 +1,6 @@
 /**
  * MemoryAdapter —— 内存存储适配器（参考实现 + 单测用）
- * QuickClass 内置时请用 PrismaAdapter（见 docs/prisma-adapter.md）
+ * wczx-AI-Hub 内置时请用 PrismaAdapter（见 docs/prisma-adapter.md）
  */
 import type {
   ListTasksOpts,

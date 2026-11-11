@@ -1,11 +1,11 @@
 #!/bin/bash
-# QuickClass 升级脚本
+# wczx-AI-Hub 升级脚本
 # 用法: ./upgrade.sh [新版本zip路径]
 
 set -e
 
 echo "=========================================="
-echo "  QuickClass 升级工具"
+echo "  wczx-AI-Hub 升级工具"
 echo "=========================================="
 echo ""
 
@@ -19,7 +19,7 @@ if [ -z "$1" ]; then
     echo "用法: ./upgrade.sh <新版本zip路径>"
     echo ""
     echo "示例:"
-    echo "  ./upgrade.sh ~/Downloads/quickclass-test-v20260721.zip"
+    echo "  ./upgrade.sh ~/Downloads/wczx-ai-hub-test-v20260721.zip"
     echo ""
     echo "升级步骤:"
     echo "  1. 自动备份当前数据库"
@@ -39,7 +39,7 @@ if [ ! -f "$NEW_ZIP" ]; then
 fi
 
 # 提取新版本号
-NEW_VERSION=$(basename "$NEW_ZIP" | sed 's/quickclass-test-\(v[0-9]*\).*/\1/' || echo "未知")
+NEW_VERSION=$(basename "$NEW_ZIP" | sed 's/wczx-ai-hub-test-\(v[0-9]*\).*/\1/' || echo "未知")
 echo "新版本: $NEW_VERSION (从文件名推断)"
 echo ""
 
@@ -54,7 +54,7 @@ fi
 # 1. 备份数据库
 echo ""
 echo "[1/6] 备份当前数据库..."
-BACKUP_DIR="../quickclass-backups"
+BACKUP_DIR="../wczx-ai-hub-backups"
 mkdir -p "$BACKUP_DIR"
 BACKUP_FILE="$BACKUP_DIR/dev-$CURRENT_VERSION-$(date +%Y%m%d-%H%M%S).db"
 

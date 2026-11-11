@@ -84,7 +84,7 @@ export default function StudentLoginPage() {
           学生入口
         </h1>
         <p className="text-center text-gray-500 mb-8">
-          QuickClass Agent
+          wczx-AI-Hub Agent
         </p>
 
         <Form form={form} onSubmit={handleSubmit}>

@@ -1,6 +1,6 @@
 @echo off
 chcp 65001 >nul
-title QuickClass 启动器
+title wczx-AI-Hub 启动器
 cd /d "%~dp0"
 
 rem 将本地 node_modules\.bin 加入 PATH，避免 npx 去仓库拉最新预发布版
@@ -17,7 +17,7 @@ set "PRISMA_ENGINES_MIRROR=https://registry.npmmirror.com/-/binary/prisma"
 setlocal enabledelayedexpansion
 
 echo ========================================
-echo   QuickClass 启动器 v2026.09.09
+echo   wczx-AI-Hub 启动器 v2026.09.09
 echo   指南见 readme.md / 安装指南.md
 echo ========================================
 
@@ -84,19 +84,19 @@ echo 失败 升级中止：数据库缺失或为空 >> start.log
 pause
 exit /b 1
 :db_good
-if not exist "..\quickclass-upgrade-staging\prisma" mkdir "..\quickclass-upgrade-staging\prisma" >nul 2>&1
-copy "%DB_PATH%" "..\quickclass-upgrade-staging\prisma\dev.db" >nul 2>&1
+if not exist "..\wczx-ai-hub-upgrade-staging\prisma" mkdir "..\wczx-ai-hub-upgrade-staging\prisma" >nul 2>&1
+copy "%DB_PATH%" "..\wczx-ai-hub-upgrade-staging\prisma\dev.db" >nul 2>&1
 echo   正在覆盖文件，不删除本地数据文件...
-xcopy "..\quickclass-upgrade-staging" . /E /Y /Q >nul 2>&1
+xcopy "..\wczx-ai-hub-upgrade-staging" . /E /Y /Q >nul 2>&1
 echo   正在把数据库放回原位...
 for %%p in ("%DB_PATH%") do set "DB_DIR=%%~dpp"
 if exist "!DB_DIR!" goto :dir_ok
 mkdir "!DB_DIR!" >nul 2>&1
 :dir_ok
-copy "..\quickclass-upgrade-staging\prisma\dev.db" "%DB_PATH%" >nul 2>&1
+copy "..\wczx-ai-hub-upgrade-staging\prisma\dev.db" "%DB_PATH%" >nul 2>&1
 echo   正在清理升级标记...
 del /F /Q ".upgrade-pending" >nul 2>&1
-rmdir /S /Q "..\quickclass-upgrade-staging" >nul 2>&1
+rmdir /S /Q "..\wczx-ai-hub-upgrade-staging" >nul 2>&1
 echo   正在重新安装依赖...
 call npm install --no-audit --no-fund
 call prisma db push --skip-generate

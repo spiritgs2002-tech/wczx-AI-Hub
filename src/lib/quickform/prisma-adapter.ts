@@ -2,7 +2,7 @@
  * PrismaAdapter —— QuickForm SDK 的 StorageAdapter 实现（规范 §7）
  *
  * 只依赖 QfTask / QfRecord 两张表（qf_ 前缀独立命名空间），
- * 不与 QuickClass 业务表建立任何关系，互不影响。
+ * 不与 wczx-AI-Hub 业务表建立任何关系，互不影响。
  */
 import type { PrismaClient } from "@prisma/client";
 import type {

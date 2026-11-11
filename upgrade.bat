@@ -3,7 +3,7 @@ chcp 65001 >nul
 setlocal enabledelayedexpansion
 
 echo ==========================================
-echo   QuickClass 升级工具 (Windows)
+echo   wczx-AI-Hub 升级工具 (Windows)
 echo ==========================================
 echo.
 
@@ -12,7 +12,7 @@ if "%~1"=="" (
     echo 用法: upgrade.bat ^<新版本zip路径^>
     echo.
     echo 示例:
-    echo   upgrade.bat C:\Users\Downloads\quickclass-test-v20260721.zip
+    echo   upgrade.bat C:\Users\Downloads\wczx-ai-hub-test-v20260721.zip
     echo.
     echo 升级步骤:
     echo   1. 自动备份当前数据库
@@ -55,7 +55,7 @@ echo.
 echo [1/6] 备份当前数据库...
 
 REM 创建备份目录
-set "BACKUP_DIR=..\quickclass-backups"
+set "BACKUP_DIR=..\wczx-ai-hub-backups"
 if not exist "%BACKUP_DIR%" mkdir "%BACKUP_DIR%"
 
 REM 生成备份文件名（带时间戳）
@@ -94,7 +94,7 @@ echo.
 echo [3/6] 解压新版本...
 
 REM 创建临时目录
-set "TEMP_DIR=%TEMP%\quickclass-upgrade-%TIMESTAMP%"
+set "TEMP_DIR=%TEMP%\wczx-ai-hub-upgrade-%TIMESTAMP%"
 if exist "%TEMP_DIR%" rmdir /s /q "%TEMP_DIR%"
 mkdir "%TEMP_DIR%"
 

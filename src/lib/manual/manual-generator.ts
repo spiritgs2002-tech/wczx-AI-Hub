@@ -1,13 +1,13 @@
 /**
- * 教学手册生成器（移植自 quickclass-lesson-converter skill 的 generate_lesson_guide.py）
+ * 教学手册生成器（移植自 wczx-ai-hub-lesson-converter skill 的 generate_lesson_guide.py）
  *
  * 依据课堂 JSON 中实际配置的四类活动（对话 / 探究 / 作业 / 项目）逐条生成教学流程，
- * 并给出每个活动在 QuickClass 上的操作指引，形成一份可照着上课的教师指南。
+ * 并给出每个活动在 wczx-AI-Hub 上的操作指引，形成一份可照着上课的教师指南。
  *
  * 手册结构：
  *  封面（教师 · 单位 / 年级 · 学科 · 来源）
  *  一、教学目标（一节式：N. 素养名称，具体目标描述）
- *  二、教学活动（活动目标 / 活动内容 / 教师指导 / 学生反馈应对 / QuickClass操作指导 + 活动间过渡语）
+ *  二、教学活动（活动目标 / 活动内容 / 教师指导 / 学生反馈应对 / wczx-AI-Hub操作指导 + 活动间过渡语）
  *  三、课堂作业设计（逐题内容）
  *  四、教学反思（教师自我评价与记录框架）
  *  五、备用活动（超出 30 分钟活动限时被移出的活动）
@@ -247,7 +247,7 @@ const STAGE_GUIDE: Record<string, StageGuideItem> = {
 
 const DEFAULT_STAGE_GUIDE = STAGE_GUIDE["新授"];
 
-// 对话活动：QuickClass 操作要点按教学阶段差异化
+// 对话活动：wczx-AI-Hub 操作要点按教学阶段差异化
 const CONV_OPERATIONS: Record<string, string> = {
   导入:
     "① 在平台创建对话活动，引导提示词侧重让学生说出自己已有的经验与疑问；\n② 设置学生个人分析与全班分析模板；\n③ 学生登录后按提示词自由发言，气氛轻松些；\n④ 教师端查看个人报告与全班观点分布，捕捉学生前概念与困惑，记下作为新授切入点。",
@@ -266,7 +266,7 @@ const INQUIRY_ACT_TEMPLATE = {
     "教师先明确探究任务与完成标志，再放手让学生操作，不要提前演示结论。巡视时重点看学生是否真的在尝试不同做法，而不是等着要答案。探究结束后必须留出汇报环节，请学生用自己的话说清“发现了什么”。",
   feedback:
     "若学生顺利得出结论：追问“换一个条件还成立吗”，推向迁移。\n若学生只顾操作不观察：给出具体的观察任务单，限定观察点。\n若学生求助AI伴学：事后请其复述AI说了什么，避免直接抄答案。\n若学生进度差异大：让先完成的学生当小老师，协助同伴。",
-  quickclass_guide:
+  wczx_ai_hub_guide:
     "① 在平台创建交互探究活动，粘贴或由AI生成可交互的HTML页面；\n② 设置是否开启AI伴学、是否要求提交探究结果；\n③ 学生登录后操作页面探究，卡住时点AI伴学提问；\n④ 教师端查看探究进度、操作轨迹与AI对话记录，调整讲解重点。",
   estimated_time: 8,
 };
@@ -280,7 +280,7 @@ const QUIZ_ACT_TEMPLATE = {
     "教师先发布全部题目让学生独立作答，不要边做边讲。巡视时只看进度不提示答案，等后台出现错误率统计后，再针对错误率高的题目组织全班讨论，其余题目由学生对照解析自行订正。",
   feedback:
     "若多数学生答对：快速确认后进入下一环节，不必逐题讲解。\n若某题错误率较高：暂停讲解，引导学生回顾相关概念，用更简单的例子重建认知。\n若学生完成速度快：布置进阶追问“你还能想到什么不同的解法”。\n若个别学生有困难：课后个别辅导，不拖慢全班进度。",
-  quickclass_guide:
+  wczx_ai_hub_guide:
     "① 在平台创建课堂作业，从教案提取或由AI生成题目；\n② 发布给全班，学生逐题作答后提交，平台自动判分并给解析；\n③ 教师端查看全班答题进度、逐题错误率与学情分析报告；\n④ 错误率高的题目统一讲评，个别困难学生课后单独辅导。",
   estimated_time: 15,
 };
@@ -294,7 +294,7 @@ const PROJECT_ACT_TEMPLATE = {
     "教师在布置时讲清要求、格式与完成标志，并给出评价要点，让学生知道“做好”的标准是什么。留出足够课内时间，收齐后当场组织同伴互评，再选代表性作品全班讲评，重点关注完成过程而非仅看成品效果。",
   feedback:
     "若作品完成度高：当场展示，请作者分享制作过程与修改经历。\n若作品有瑕疵：肯定已完成的部分，指出一处最值得改进的点，引导当场修改。\n若学生未完成：当场了解原因（不会做、没时间、不理解要求），针对性帮助并限时补齐。\n若出现创意方案：大力表扬，并鼓励其当场继续完善后再展示。",
-  quickclass_guide:
+  wczx_ai_hub_guide:
     "① 在平台创建项目提交活动，设置作品类型（文本/图片/视频等）、大小上限、是否全班可见、是否允许点赞；\n② 学生课内登录提交作品，可浏览同学作品并点赞；\n③ 教师端查看提交清单与点赞情况，当场组织展示互评。",
   estimated_time: 8,
 };
@@ -537,7 +537,7 @@ interface ManualActivity {
   content: string;
   guidance: string;
   feedback: string;
-  quickclass_guide: string;
+  wczx_ai_hub_guide: string;
   questions: ManualQuestion[];
   estimated_time: number;
 }
@@ -572,7 +572,7 @@ function buildLessonActivities(
         `教学阶段：${stage}。教师按上述阶段策略组织师生对话，要求学生在回答时说清理由，而不只给出结论。`,
       guidance: guide.guidance,
       feedback: guide.feedback,
-      quickclass_guide: CONV_OPERATIONS[stage] || CONV_OPERATIONS["新授"],
+      wczx_ai_hub_guide: CONV_OPERATIONS[stage] || CONV_OPERATIONS["新授"],
       questions: [],
       estimated_time: guide.time,
     });
@@ -1258,8 +1258,8 @@ export async function generateManualDocx(
     addLabelBody("【教师指导】", activity.guidance, { labelColor: COLOR_ACCENT });
     addMultilineBody("【学生反馈应对】", activity.feedback, COLOR_ACCENT);
 
-    if (activity.quickclass_guide) {
-      addOperationsBlock("▶ 操作要点（QuickClass）", activity.quickclass_guide);
+    if (activity.wczx_ai_hub_guide) {
+      addOperationsBlock("▶ 操作要点（wczx-AI-Hub）", activity.wczx_ai_hub_guide);
     }
 
     // 本活动涉及的题目
@@ -1290,7 +1290,7 @@ export async function generateManualDocx(
   addH1("三、课堂作业设计");
   if (total === 0) {
     addBody(
-      "本课未配置课堂作业题目。如需检测学习效果，可在 QuickClass 平台的课堂中补充课堂作业活动后重新生成本手册。",
+      "本课未配置课堂作业题目。如需检测学习效果，可在 wczx-AI-Hub 平台的课堂中补充课堂作业活动后重新生成本手册。",
       { italic: true, color: COLOR_HINT, indent: true }
     );
   }
@@ -1407,8 +1407,8 @@ export async function generateManualDocx(
       addH2(`备用${bi + 1}　${b.name}`);
       if (b.goal) addLabelBody("【活动目标】", b.goal);
       if (b.content) addMultilineBody("【活动内容】", b.content);
-      if (b.quickclass_guide) {
-        addOperationsBlock("▶ 操作要点（QuickClass）", b.quickclass_guide);
+      if (b.wczx_ai_hub_guide) {
+        addOperationsBlock("▶ 操作要点（wczx-AI-Hub）", b.wczx_ai_hub_guide);
       }
       if (bi < backup.length - 1) addDots();
     });
@@ -1417,7 +1417,7 @@ export async function generateManualDocx(
 
   // 末尾说明
   addParagraph(
-    "说明：本教学手册由 QuickClass 课堂 JSON 自动生成，教学目标按学科核心素养描写，教学流程依据课堂中配置的四类活动逐条生成，教师可根据实际学情灵活调整。",
+    "说明：本教学手册由 wczx-AI-Hub 课堂 JSON 自动生成，教学目标按学科核心素养描写，教学流程依据课堂中配置的四类活动逐条生成，教师可根据实际学情灵活调整。",
     {
       size: SMALL_SIZE,
       italic: true,
@@ -1445,7 +1445,7 @@ export async function generateManualDocx(
   });
 
   const docxDoc = new Document({
-    creator: "QuickClass",
+    creator: "wczx-AI-Hub",
     title: coverTitle,
     sections: [
       {

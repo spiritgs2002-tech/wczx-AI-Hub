@@ -29,13 +29,12 @@
 
 ## 1. 项目速览
 
-QuickClass（觉课智能体）—— 面向教师/学生的 AI 课堂平台。Web 应用，前后端同仓（Next.js App Router）。
+wczx-AI-Hub（文昌智枢）—— 面向教师/学生的 AI 课堂平台。Web 应用，前后端同仓（Next.js App Router）。
 
 | 项 | 值 |
 |---|---|
 | 技术栈 | Next.js 14（App Router）+ TypeScript + Prisma + SQLite + TDesign |
-| 主仓库 | Gitee `maoyouhui/quickclass-private`（**日常开发都在这里**，`dev` 是共享主干） |
-| 展示仓库 | Gitee `maoyouhui/quickclass-release`（仅对外展示窗口，`main` 由私有 `main` 同步过去，**不要直接向它提交**） |
+| 仓库 | GitHub `spiritgs2002-tech/wczx-AI-Hub`（私有，日常开发与发布都在这里；客户端自动升级读取其 `main` 分支的 `public/latest.json`，仓库为私有时自动升级不可用） |
 | 开发分支 | `dev`（两位开发者日常直接推送，开工前必先拉取，见 §4） |
 | 生产分支 | `main`（只在发版时由项目负责人从 `dev` 合并，见 `私有dev发布流程.md`） |
 | 权威协作文档 | `Git协作完整指南.md`（给人看的完整版；本文件是给 AI 看的可执行版） |
@@ -206,7 +205,7 @@ git add <解决的文件> && git commit && git push origin dev
 
 - **两位开发者**：小修直接在 `dev` 上改完推送（开工前先按 §4 拉取）；大改动走个人分支（`cc/功能名` / `myh/功能名`）测稳后合回 `dev`。
 - **不直接推 `main`**：`main` 只在发布时由项目负责人从 `dev` 合并后推送（见 `私有dev发布流程.md`）。
-- `quickclass-release` 是对外展示窗口，由私有 `main` 同步，**任何人都不要直接向它提交**。
+- `main` 即发布分支：调高 `public/latest.json` 的 `version` 并推送 `main`，客户端即可检测到更新。
 - 一个提交一件事；提交信息写清“**做了什么 + 为什么**”。
 - 推送前自查：`git status` 干净、无 `.env` / `*.db` 混入。
 - 提交信息规范见 `.trae/rules/git-commit-message.md`。

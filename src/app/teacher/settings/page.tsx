@@ -1709,7 +1709,7 @@ export default function TeacherSettingsPage() {
             <div className="px-6 pb-6 border-t border-[var(--card-border)]">
               <div className="space-y-3 pt-4">
                 {[
-                  { label: "版本", value: "QuickClass 开源版本" },
+                  { label: "版本", value: "wczx-AI-Hub 开源版本" },
                   { label: "部署模式", value: "本地运行" },
                   { label: "开发", value: "常州管老师和他的AI助手" },
                   { label: "邮箱", value: "cccgxf@qq.com" },
@@ -1895,8 +1895,8 @@ export default function TeacherSettingsPage() {
                             <div>
                               <span className="font-medium text-[var(--foreground)]">macOS 用户：</span>
                               <div className="mt-1 space-y-1">
-                                <p><span className="font-medium">方法一（如果黑色命令行窗口还在运行）：</span>切换到运行 QuickClass 的黑色命令行窗口，按 <code className="px-1 bg-[var(--primary-lighter)] rounded font-mono text-[var(--primary)]">Ctrl + C</code> 停止服务，然后输入 <code className="px-1 bg-[var(--primary-lighter)] rounded font-mono text-[var(--primary)]">bash start.sh</code> 按回车重新启动</p>
-                                <p><span className="font-medium">方法二（如果黑色命令行窗口已关闭）：</span>打开「终端」应用，输入 <code className="px-1 bg-[var(--primary-lighter)] rounded font-mono text-[var(--primary)]">cd </code>（注意后面有空格），将 QuickClass 文件夹拖入终端窗口，按回车，然后输入 <code className="px-1 bg-[var(--primary-lighter)] rounded font-mono text-[var(--primary)]">bash start.sh</code> 按回车</p>
+                                <p><span className="font-medium">方法一（如果黑色命令行窗口还在运行）：</span>切换到运行 wczx-AI-Hub 的黑色命令行窗口，按 <code className="px-1 bg-[var(--primary-lighter)] rounded font-mono text-[var(--primary)]">Ctrl + C</code> 停止服务，然后输入 <code className="px-1 bg-[var(--primary-lighter)] rounded font-mono text-[var(--primary)]">bash start.sh</code> 按回车重新启动</p>
+                                <p><span className="font-medium">方法二（如果黑色命令行窗口已关闭）：</span>打开「终端」应用，输入 <code className="px-1 bg-[var(--primary-lighter)] rounded font-mono text-[var(--primary)]">cd </code>（注意后面有空格），将 wczx-AI-Hub 文件夹拖入终端窗口，按回车，然后输入 <code className="px-1 bg-[var(--primary-lighter)] rounded font-mono text-[var(--primary)]">bash start.sh</code> 按回车</p>
                               </div>
                             </div>
                           </div>
@@ -1905,8 +1905,8 @@ export default function TeacherSettingsPage() {
                             <div>
                               <span className="font-medium text-[var(--foreground)]">Windows 用户：</span>
                               <div className="mt-1 space-y-1">
-                                <p><span className="font-medium">方法一（如果黑色命令行窗口还在运行）：</span>切换到运行 QuickClass 的黑色命令行窗口，按 <code className="px-1 bg-[var(--primary-lighter)] rounded font-mono text-[var(--primary)]">Ctrl + C</code>，再按 <code className="px-1 bg-[var(--primary-lighter)] rounded font-mono text-[var(--primary)]">Y</code> 确认停止服务，然后输入 <code className="px-1 bg-[var(--primary-lighter)] rounded font-mono text-[var(--primary)]">start.bat</code> 按回车重新启动</p>
-                                <p><span className="font-medium">方法二（如果黑色命令行窗口已关闭）：</span>打开 QuickClass 文件夹，双击 <code className="px-1 bg-[var(--primary-lighter)] rounded font-mono text-[var(--primary)]">start.bat</code></p>
+                                <p><span className="font-medium">方法一（如果黑色命令行窗口还在运行）：</span>切换到运行 wczx-AI-Hub 的黑色命令行窗口，按 <code className="px-1 bg-[var(--primary-lighter)] rounded font-mono text-[var(--primary)]">Ctrl + C</code>，再按 <code className="px-1 bg-[var(--primary-lighter)] rounded font-mono text-[var(--primary)]">Y</code> 确认停止服务，然后输入 <code className="px-1 bg-[var(--primary-lighter)] rounded font-mono text-[var(--primary)]">start.bat</code> 按回车重新启动</p>
+                                <p><span className="font-medium">方法二（如果黑色命令行窗口已关闭）：</span>打开 wczx-AI-Hub 文件夹，双击 <code className="px-1 bg-[var(--primary-lighter)] rounded font-mono text-[var(--primary)]">start.bat</code></p>
                               </div>
                             </div>
                           </div>

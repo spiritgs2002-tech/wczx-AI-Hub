@@ -1,5 +1,5 @@
 /**
- * 学科核心素养参考数据（源自 quickclass-lesson-converter skill 的 core_competencies.json）
+ * 学科核心素养参考数据（源自 wczx-ai-hub-lesson-converter skill 的 core_competencies.json）
  * 覆盖义务教育 16 学科 + 普通高中 11 学科。
  * 教学手册生成时以本数据为唯一依据，不得凭记忆写维度名。
  */

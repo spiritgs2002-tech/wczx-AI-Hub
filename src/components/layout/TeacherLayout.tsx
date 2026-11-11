@@ -140,8 +140,8 @@ export default function TeacherLayout({
         >
           {!sidebarCollapsed && (
             <>
-              <h2 className="text-lg font-bold text-[var(--primary)] tracking-tight">QuickClass Agent</h2>
-              <p className="text-sm font-medium text-[var(--muted)]">文昌中学智能体</p>
+              <h2 className="text-lg font-bold text-[var(--primary)] tracking-tight">wczx-AI-Hub Agent</h2>
+              <p className="text-sm font-medium text-[var(--muted)]">文昌智枢</p>
             </>
           )}
           <button

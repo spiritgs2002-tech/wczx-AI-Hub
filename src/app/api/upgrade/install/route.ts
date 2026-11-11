@@ -50,7 +50,7 @@ export async function POST(request: Request) {
       success: true,
       message: "升级包已准备就绪",
       newVersion: result.newVersion,
-      detail: "请重启 QuickClass 服务以完成升级",
+      detail: "请重启 wczx-AI-Hub 服务以完成升级",
     });
   } catch (error) {
     console.error("升级安装失败:", error);

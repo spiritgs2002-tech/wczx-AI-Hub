@@ -24,7 +24,7 @@ alwaysApply: true
 
 ## 边界
 
-- 不越权：**不直接推 `main`**；不向展示仓库 `quickclass-release` 提交。
+- 不越权：**不直接推 `main`**；不向展示仓库 `wczx-ai-hub-release` 提交。
 - 冲突拿不准时**停下问用户**，禁止删掉对方改动来"让冲突消失"。
 
 ## 🔗 关联（改本文件时务必同步）

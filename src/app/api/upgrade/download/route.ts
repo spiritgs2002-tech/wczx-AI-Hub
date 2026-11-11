@@ -20,7 +20,7 @@ import { prepareUpgradeFromZip } from "@/lib/upgrade-prepare";
 
 // 与 /api/version/check 同源的升级仓库地址（版本号真源 latest.json 所在仓库）
 // 📐 CONTRACT：MUST STAY IN SYNC with LATEST_VERSION_URL in src/app/api/version/check/route.ts，以及 public/latest.json 的 downloadUrl。
-const RELEASE_REPO_URL = "https://github.com/spiritgs2002-tech/quickclass-release";
+const RELEASE_REPO_URL = "https://github.com/spiritgs2002-tech/wczx-AI-Hub";
 
 const MAX_ZIP_SIZE = 200 * 1024 * 1024; // 200MB
 
@@ -97,7 +97,7 @@ export async function POST(request: Request) {
     }
 
     // 落盘临时文件后走公共准备流程（requireNewer: 版本闸门）
-    const tmpZipPath = path.join(os.tmpdir(), `quickclass-upgrade-auto-${Date.now()}.zip`);
+    const tmpZipPath = path.join(os.tmpdir(), `wczx-ai-hub-upgrade-auto-${Date.now()}.zip`);
     fs.writeFileSync(tmpZipPath, buffer);
     let result;
     try {
@@ -114,7 +114,7 @@ export async function POST(request: Request) {
       success: true,
       newVersion: result.newVersion,
       changelog: result.changelog,
-      detail: "更新包已就绪，请重启 QuickClass 服务（重新运行 start 脚本）自动完成升级",
+      detail: "更新包已就绪，请重启 wczx-AI-Hub 服务（重新运行 start 脚本）自动完成升级",
     });
   } catch (error) {
     console.error("一键更新失败:", error);

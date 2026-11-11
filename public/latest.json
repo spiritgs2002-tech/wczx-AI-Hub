@@ -1,6 +1,6 @@
 {
   "version": "v2026.10.22",
-  "downloadUrl": "https://github.com/spiritgs2002-tech/quickclass-release",
+  "downloadUrl": "https://github.com/spiritgs2002-tech/wczx-AI-Hub",
   "changelog": "新增功能：对话活动分析窗口可弹窗查看单个学生的对话记录；优化功能：课堂作业报告按学生去重、学生端不完整提交自动重交、AI 超时只防连接不成功使长思考任务不再被掐断、模板预览 JSON 整体输出格式化、导出 docx 优化；修复问题：学生对话 max tokens 超限报错译为人话、课堂作业题目换行丢失",
   "releaseDate": "2026-10-22"
 }

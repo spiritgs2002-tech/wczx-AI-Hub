@@ -1,7 +1,7 @@
 /**
  * quickform-core —— QuickForm 数据任务核心 SDK（vendor 副本）
  *
- * ⚠️ 本目录为 vendor 目录，**QuickClass 仓内只读，禁止手改**。
+ * ⚠️ 本目录为 vendor 目录，**wczx-AI-Hub 仓内只读，禁止手改**。
  * 唯一源码地：gitee.com/markets2022/quickform-core（版本见 VENDOR.md）
  * 修改 SDK 请到源仓改 → 打 tag → 用 vendor 脚本重新同步。
  */

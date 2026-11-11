@@ -5,7 +5,7 @@ import os from "os";
 import { execSync } from "child_process";
 import { readVersionInfoFromDir } from "@/lib/version-info";
 
-export const STAGING_DIR = path.join(process.cwd(), "..", "quickclass-upgrade-staging");
+export const STAGING_DIR = path.join(process.cwd(), "..", "wczx-ai-hub-upgrade-staging");
 
 /**
  * 升级准备公共逻辑（供 /api/upgrade/install 与 /api/upgrade/download 共用）
@@ -277,7 +277,7 @@ export function cleanStaging() {
 }
 
 export async function prepareUpgradeFromBuffer(buffer: Buffer): Promise<PrepareUpgradeResult> {
-  const tmpZipPath = path.join(os.tmpdir(), `quickclass-upgrade-${Date.now()}.zip`);
+  const tmpZipPath = path.join(os.tmpdir(), `wczx-ai-hub-upgrade-${Date.now()}.zip`);
   fs.writeFileSync(tmpZipPath, buffer);
   try {
     return await prepareUpgradeFromZip(tmpZipPath);
