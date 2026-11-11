@@ -1571,3 +1571,21 @@ KPI：参与 45 人 ｜ 平均分 82.3 ｜ 最高分 100 ｜ 三星人数 28
 SheetJS 使用[官方安装说明](https://docs.sheetjs.com/docs/getting-started/installation/nodejs/)指定的 CDN 0.20.3 包，导入名仍为 `xlsx`。排版插件 `@tailwindcss/typography` 锁定旧 `postcss-selector-parser`，通过 package.json 的定向覆盖使用兼容的 6.1.5。
 
 复查命令：`npm audit --omit=dev --registry=https://registry.npmjs.org`。2026-11-12 的复查剩余 6 项：Next（critical）、Next 内嵌 PostCSS（high），以及 KaTeX / micromark-extension-math / rehype-katex / remark-math（4 项 low）。Next 保持 14.2.35；KaTeX 链的修复版本超出上游声明范围，未强制覆盖或降级。审计结果会变化，交付时必须重新运行命令。
+
+
+---
+
+## 工程维护与 AI 协作
+
+<!-- MUST KEEP MAINTENANCE FACTS IN SYNC: 防止旧多仓库/dev 流程与数据库路径误导维护者。 -->
+<!-- 📐 CONTRACT: 单一 origin/main，个人分支与独立工作目录，默认 prisma/dev.db。 -->
+<!-- 🔗 RELATED: AGENTS.md §1/§3/§4/§6/§8、Git协作完整指南.md、.env.example。 -->
+<!-- ⛔ DO NOT REVERT: 不恢复共享 dev、migrate reset 或 WAL；变更维护流程须同步关联文档。 -->
+
+- 唯一仓库为 GitHub `spiritgs2002-tech/wczx-AI-Hub`（私有），远程 `origin`，`main` 为集成与发布主干。开工先同步 main，再建工作分支；没有明确授权不推送、不合并。私有仓库不能供未授权客户端读取 `public/latest.json` 自动升级。
+- Codex 在 `~/Desktop/wczx-AI-Hub` 使用 `codex/*`；Claude 在 worktree `~/Desktop/wczx-AI-Hub-claude` 使用 `claude/*`。按任务卡文件归属分工，不修改对方文件，需要越界先告诉用户；禁止 force push（用户明确批准的历史清理除外）。本次加固由 Claude 统一集成。
+- 默认 `DATABASE_URL="file:./dev.db"` 相对 `prisma/schema.prisma` 解析到 **`prisma/dev.db`**。先核对本机配置并备份实际文件，再执行 `npx prisma db push`；迁移目录与 `db:migrate` / `db:reset` 已停用。独立测试库不得指向用户真库。
+- 开发与生产均为 SQLite，初始化等待写锁 5000ms；禁止 WAL，因为备份/升级只复制 dev.db。不要运行 `bash start.sh`。
+- 交付要求 `npx tsc --noEmit` **0 错误**，以及 `npx prisma generate && npm run build` 成功。`typescript.ignoreBuildErrors` 必须保持 false，ESLint 维持现状。
+
+完整操作见 [Git 协作完整指南](Git协作完整指南.md)；AI 开工前完整阅读 [AGENTS.md](AGENTS.md)。

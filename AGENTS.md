@@ -35,8 +35,8 @@ wczx-AI-Hub（文昌智枢）—— 面向教师/学生的 AI 课堂平台。Web
 |---|---|
 | 技术栈 | Next.js 14（App Router）+ TypeScript + Prisma + SQLite + TDesign |
 | 仓库 | GitHub `spiritgs2002-tech/wczx-AI-Hub`（私有，日常开发与发布都在这里；客户端自动升级读取其 `main` 分支的 `public/latest.json`，仓库为私有时自动升级不可用） |
-| 开发分支 | `dev`（两位开发者日常直接推送，开工前必先拉取，见 §4） |
-| 生产分支 | `main`（只在发版时由项目负责人从 `dev` 合并，见 `私有dev发布流程.md`） |
+| 主干分支 | `main`（唯一集成与发布主干；开工先同步，再建个人分支，见 §4） |
+| 工作分支 | Codex 用 `codex/*`，Claude 用 `claude/*`；测试通过后由指定集成人合并到 `main`，见 §8 |
 | 权威协作文档 | `Git协作完整指南.md`（给人看的完整版；本文件是给 AI 看的可执行版） |
 
 ---
@@ -69,11 +69,12 @@ npx tsc --noEmit
 
 ## 3. 硬约束（🛑 必须遵守）
 
-### ① 数据库：真库是 `prisma/prisma/dev.db`
+### ① 数据库：默认真库是 `prisma/dev.db`
 
-- `.env` 里的 `DATABASE_URL` 是**相对 `schema.prisma` 所在目录**解析的 —— 别按仓库根去拼路径。
-- **schema 有变更时必须显式执行** `npx prisma db push`（`npm run build` 不会替你做）。
-- 改动、迁移、清理数据库前**先备份原文件**（`cp prisma/prisma/dev.db <备份名>`）。
+- `.env.example` 的 `DATABASE_URL="file:./dev.db"` 相对 `prisma/schema.prisma` 所在目录解析，实际为 `prisma/dev.db`。操作前核对本机 `.env`；历史配置可能指向嵌套目录，不能据默认路径覆盖或搬移用户数据。
+- **schema 有变更时必须显式执行** `npx prisma db push`（`npm run build` 不会替你做）。本项目已停用 `prisma/migrations/`、`db:migrate` 和 `db:reset`，不得使用 `prisma migrate reset`。
+- SQLite 连接由 `src/lib/prisma.ts` 设置 `PRAGMA busy_timeout = 5000`。**不要开启 WAL**：备份/升级仅复制 `dev.db`，无法保留未合并的 WAL 数据。测试时显式覆盖 `DATABASE_URL` 指向独立测试库，并先备份测试库。
+- 改动、迁移、清理数据库前**先备份原文件**（`cp prisma/dev.db <备份名>`，路径以已核实的 `DATABASE_URL` 为准）。
 
 > ⛔ DO NOT USE `bash start.sh` —— 它在某些情况下会**初始化出一个空库**，属于本项目的历史地雷。
 > 需要启动就用 §2 的 `next start` 命令。
@@ -84,18 +85,11 @@ npx tsc --noEmit
 
 ### ③ 🛑 “构建成功” ≠ “没有 bug”
 
-`next.config.mjs` 里开了 `typescript.ignoreBuildErrors` ⇒ **`npm run build` 通过，不代表类型是对的**。
-所以任何代码改动交付前，必须单独跑一次 `npx tsc --noEmit`，并把**新增**的类型错误清干净。
+`next.config.mjs` 必须保持 `typescript.ignoreBuildErrors: false`，构建遇到类型错误应失败；ESLint 维持现有配置。
+交付前必须单独执行 `npx tsc --noEmit`，要求 **0 错误**，并通过 `npx prisma generate && npm run build`。
 
-> 🔗 判断“是否新增”的正确姿势：比较改动前后报错的**文件集合**（不要只看错误条数，数量会因无关改动浮动）：
->
-> ```bash
-> # 改动前先存基线
-> npx tsc --noEmit 2>&1 | grep 'error TS' | sed 's/(.*//' | sort -u > /tmp/tsc-before.txt
-> # 改完再跑一次；diff 为空 = 零新增类型错误
-> npx tsc --noEmit 2>&1 | grep 'error TS' | sed 's/(.*//' | sort -u > /tmp/tsc-after.txt
-> diff /tmp/tsc-before.txt /tmp/tsc-after.txt
-> ```
+<!-- MUST KEEP TYPE CHECKS ENABLED: 以前忽略错误会让“构建成功”掩盖类型缺陷；0 错误是交付契约。 -->
+<!-- 🔗 RELATED: next.config.mjs typescript；package.json build。⛔ DO NOT REVERT: 修复错误，禁止重新开启 ignoreBuildErrors。 -->
 
 ### ④ 列表接口瘦身契约（🛑 别把字段加回去）
 
@@ -121,17 +115,26 @@ npx tsc --noEmit
 
 ---
 
-## 4. 开工前先同步 dev（🛑 AI 必须执行，不是可选建议）
+## 4. 开工前先同步 main（🛑 AI 必须执行）
 
-> ⛔ DO NOT SKIP 历史教训：本仓库是**两人共享 `dev` 主干**的协作模式。
-> 跳过拉取 = 基于旧代码开发 = 与合作者的新提交冲突，返工一轮（2026-09 与 2026-10 均实际发生过）。
+<!-- MUST SYNC MAIN FIRST: 单仓库以 main 集成，过期基线会造成冲突；每个任务在独立分支修改。 -->
+<!-- 🔗 RELATED: §1、§6、§8 与 Git协作完整指南.md。⛔ DO NOT REVERT: 不恢复共享 dev 或多远程发布流程。 -->
 
 ### ① 开工第一步永远是拉最新
 
+先确认当前目录、分支与工作区；有未提交内容时保留原样，不要为切分支丢弃工作。
+Codex 在 `~/Desktop/wczx-AI-Hub`，Claude 在 `~/Desktop/wczx-AI-Hub-claude`（worktree）。
+
 ```bash
-git pull origin dev
-git status        # 确认工作区干净、无冲突残留，再开始读代码/改代码
+git status
+# 在干净的 main 上同步，再建立本次工作分支（Codex 示例）
+git switch main
+git pull origin main
+git switch -c codex/任务名
 ```
+
+Claude worktree 从已同步的 `origin/main` 建立 `claude/任务名`，不得与主目录检出同一分支。
+任务卡已指定分支时按任务卡执行；禁止在 `main` 上直接开发。
 
 ### ② 动手前先看目标文件最近谁在改
 
@@ -139,31 +142,33 @@ git status        # 确认工作区干净、无冲突残留，再开始读代码
 git log --oneline -5 -- <要改的文件>
 ```
 
-- 若合作者最近 1~2 天内有提交，且你们的改动可能重叠 → **先向用户说明**「该文件合作者刚改过」，
-  建议先沟通或把改动拆到对方不会碰的文件，不要闷头改；
-- **大改动**（新功能 / 跨多文件重构）→ 先拉个人分支（`cc/功能名` 或 `myh/功能名`），
-  本地测稳后合回 `dev` 再推送；小修直接在 `dev` 上做。
+- 若合作者最近 1~2 天内提交且改动可能重叠，先向用户说明，沟通或拆分文件归属。
+- 按 §8 与任务卡文件清单分工；需要修改边界外文件时先停下并告诉用户。
 
-### ③ push 被拒时：先 pull，再按原则解冲突，禁止暴力手段
+### ③ 同步与冲突处理
 
-`git push` 被拒 ⇒ 说明合作者先推了新提交 ⇒ `git pull origin dev` 后按下面原则处理 `<<<<<<< / ======= / >>>>>>>` 冲突标记：
+集成前先更新 `origin/main`，在自己的工作分支合并最新主干并处理冲突。推送仅在任务已授权时执行；被拒先拉取对应远程分支并理解差异，禁止强推。
 
 | 原则 | 说明 |
 |---|---|
-| 合并两边 | 两处改动功能上互不影响（如各加了一个函数）→ 都保留 |
-| 取正确版 | 同一处改了两版 → 理解两边意图，保留语义正确的一版（可融合） |
-| 拿不准就停 | 把冲突块贴给用户，**问完再动手**——宁可通过率低，不能静默丢改动 |
+| 合并两边 | 功能互不影响的改动都保留 |
+| 取正确版 | 理解两边意图，保留语义正确的一版或融合实现 |
+| 拿不准就停 | 把冲突块交给用户确认，不静默丢失改动 |
 
-> ⛔ DO NOT FORCE PUSH —— `git push --force` 会**抹掉合作者已推送的提交**，不可恢复。
-> ⛔ DO NOT DISCARD —— 禁止用 `git checkout -- .` / `git reset --hard` 清工作区来"让冲突消失"，那会连本地未提交工作一起丢。
-> ⛔ 禁止直接删掉对方的改动行来"解决"冲突——冲突的意义就是两边都改了，必须逐块读懂。
+> ⛔ DO NOT FORCE PUSH —— 禁止强推；仅用户明确批准的历史清理例外。
+> ⛔ DO NOT DISCARD —— 禁止用 `git checkout -- .` / `git reset --hard` 清工作区或掩盖冲突。
+> 禁止直接删掉对方的改动行来“解决”冲突，必须逐块读懂。
 
-### ④ 解完冲突必须验证再推送
+### ④ 解完冲突必须重新验证
 
 ```bash
-npx tsc --noEmit    # 见 §3-③，确认无新增类型错误
-git add <解决的文件> && git commit && git push origin dev
+npx tsc --noEmit
+npx prisma generate && npm run build
+git add <解决的文件>
+git commit
 ```
+
+测试通过后把提交交给指定集成人；是否推送、合并、发布以当前任务授权为准。
 
 ---
 
@@ -203,12 +208,14 @@ git add <解决的文件> && git commit && git push origin dev
 
 ## 6. 提交与分支约定
 
-- **两位开发者**：小修直接在 `dev` 上改完推送（开工前先按 §4 拉取）；大改动走个人分支（`cc/功能名` / `myh/功能名`）测稳后合回 `dev`。
-- **不直接推 `main`**：`main` 只在发布时由项目负责人从 `dev` 合并后推送（见 `私有dev发布流程.md`）。
-- `main` 即发布分支：调高 `public/latest.json` 的 `version` 并推送 `main`，客户端即可检测到更新。
+- **单仓库**：唯一远程为 GitHub `spiritgs2002-tech/wczx-AI-Hub`（`origin`），`main` 是唯一集成与发布主干。
+- **独立工作分支**：Codex 用 `codex/*`，Claude 用 `claude/*`；完成检查后由任务指定的集成人统一合并到 `main`。
+- **不直接推 main**：禁止在主干直接开发；没有明确授权时只做本地提交，不推送、不合并。
+- `public/latest.json` 的 `version` 与发布配套更新；客户端读取 `main`，但私有仓库无法供未授权客户端自动升级，不能只改版本号就声称升级可用。
 - 一个提交一件事；提交信息写清“**做了什么 + 为什么**”。
-- 推送前自查：`git status` 干净、无 `.env` / `*.db` 混入。
+- 提交前检查差异与暂存区；交付时 `git status` 干净，禁止混入 `.env` / `*.db` / 构建产物。
 - 提交信息规范见 `.trae/rules/git-commit-message.md`。
+- 禁止 force push，用户明确批准的历史清理除外。
 
 ---
 
@@ -227,3 +234,23 @@ AGENTS.md                      ← 唯一事实来源（跨 20+ 工具，本文�
 > 各工具的入口文件里**只写“去读 AGENTS.md”**，不写正文。
 > 原因：正文一旦复制成多份，规范更新时必然漂移，出现“哪个版本才算数”的混乱。
 > 新增一种工具的入口 = 加一个 3 行的指针文件，**而不是再抄一遍规范**。
+
+
+---
+
+## 8. AI 协作分工
+
+<!-- MUST RESPECT FILE OWNERSHIP: 两个工作目录共享同一 Git 仓库，worktree 只隔离工作区；跨文件重叠仍会冲突。 -->
+<!-- 📐 CONTRACT: 以当前任务卡的文件清单为本次分工，改边界外文件前先停下告诉用户。 -->
+<!-- 🔗 RELATED: §4、§6 与 Git协作完整指南.md；路径和分支约定必须同步维护。 -->
+<!-- ⛔ DO NOT FORCE PUSH: 不修改对方负责的文件、不覆盖提交；只有用户明确批准的历史清理可以例外。 -->
+
+| AI | 工作目录 | 分支 |
+|---|---|---|
+| Codex | `~/Desktop/wczx-AI-Hub` | `codex/*` |
+| Claude | `~/Desktop/wczx-AI-Hub-claude`（worktree） | `claude/*` |
+
+- 按文件归属分工，不改对方负责的文件；任务卡的明确例外优先。
+- 不在对方工作目录运行编辑、切分支或清理操作；两个目录不能同时检出同一分支。
+- 各自完成本地提交与验证，统一集成由用户或任务指定的人负责；本任务由 Claude 统一合并。
+- 禁止 force push（经用户明确批准的历史清理除外），禁止丢弃对方改动。

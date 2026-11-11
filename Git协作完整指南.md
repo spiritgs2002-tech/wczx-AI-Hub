@@ -1,429 +1,119 @@
-# Git 协作完整指南
+# wczx-AI-Hub Git 协作完整指南
 
-本指南面向项目负责人和合作开发者，说明本项目的 Git 仓库结构、分支设计、日常协作方式，以及从开发到发布的完整流程。文档同时提供命令行操作和 Trae Code / VS Code 图形化操作两种方式。
+本指南说明当前单仓库、main 主干与 AI worktree 协作流程。协作规范以根目录 [AGENTS.md](AGENTS.md) 为唯一事实来源；任务卡的明确授权与文件边界优先。
 
----
+<!-- MUST KEEP THE MAIN WORKFLOW IN SYNC: 旧多仓库/dev 流程已停用，继续使用会同步到错误的分支。 -->
+<!-- 📐 CONTRACT: origin 是唯一仓库；工作分支验证后由指定集成人进入 main。 -->
+<!-- 🔗 RELATED: AGENTS.md §1/§4/§6/§8；readme.md 工程维护说明。 -->
+<!-- ⛔ DO NOT REVERT: 不恢复 private/dev、Gitee 或 github-release 的多远程发布指令；改流程须同步上述文档。 -->
 
-## 一、项目背景与设计思路
+## 一、仓库与分支
 
-### 1.1 为什么有两个仓库？
-
-本项目同时维护三个代码仓库：
-
-| 仓库 | 平台 | 角色 | 说明 |
-|---|---|---|---|
-| 私有仓库 | `https://github.com/spiritgs2002-tech/wczx-AI-Hub.git` | 项目负责人 | 日常开发与个人备份，本地 `dev` 的上游指向这里 |
-| Gitee 仓库 | `https://github.com/spiritgs2002-tech/wczx-AI-Hub.git` | 国内用户 + 合作者 | 发布仓库：合作者贡献汇聚在 `dev`，国内发布走 `main` |
-| GitHub 仓库 | `https://github.com/spiritgs2002-tech/wczx-AI-Hub.git` | 国际用户 | 国际版仓库，只发布稳定版本 |
-
-**设计原因：**
-- 私有仓库是负责人的"草稿区"：日常开发随时推送备份，不影响任何人，也不污染发布仓库。
-- 国内访问 Gitee 更快、更稳定，所以对外协作与国内发布都以 Gitee release 仓库为准。
-- GitHub 是国际用户更熟悉的平台，用于发布国际版。
-- GitHub 上的代码**完全等同于 Gitee 上的 `main` 分支**，不做额外修改。
-
-### 1.2 为什么这样设计分支？
-
-| 分支 | 用途 | 谁可以操作 |
-|---|---|---|
-| `private/dev` | 负责人日常开发分支 | 项目负责人 |
-| `origin/dev` | 合作者贡献分支 | 所有合作开发者 |
-| `main` | 国内发布分支 | 项目负责人 |
-| `github-release/main` | 国际发布分支 | 项目负责人 |
-
-**设计思路：**
-- `dev` 分属两个仓库：负责人平时在 `private/dev` 开发（随时备份、无人打扰）；合作者的贡献进入 `origin/dev`（有写权限可直接推，无写权限走 PR，见 §三）。发布时两边一起合并进 `main`。
-- `main` 是"稳定区"，只有当 `dev` 测试通过后才合并进来，用于国内发布。
-- `github-release/main` 是"国际稳定区"，内容和 `main` 保持一致，用于国际发布。
-
-> 简单来说：**dev 是开发（负责人在 private、合作者在 origin），main 是国内发布，GitHub 是国际发布。**
-
----
-
-## 二、仓库配置速览
-
-当前项目已配置好以下远程仓库：
-
-```bash
-$ git remote -v
-
-private         https://github.com/spiritgs2002-tech/wczx-AI-Hub.git (fetch)
-private         https://github.com/spiritgs2002-tech/wczx-AI-Hub.git (push)
-origin          https://github.com/spiritgs2002-tech/wczx-AI-Hub.git (fetch)
-origin          https://github.com/spiritgs2002-tech/wczx-AI-Hub.git (push)
-github-release  https://github.com/spiritgs2002-tech/wczx-AI-Hub.git (fetch)
-github-release  https://github.com/spiritgs2002-tech/wczx-AI-Hub.git (push)
-```
-
-- `private`：私有开发仓库（负责人日常 `dev` 推送；⚠️ 注意 `origin` **不是**私有仓库）
-- `origin`：Gitee 发布仓库（合作者贡献 + 国内发布）
-- `github-release`：GitHub 国际发布仓库
-
----
-
-## 三、合作开发者操作指南
-
-作为合作开发者，你只需要关心 Gitee 发布仓库（`origin`）的 `dev` 分支：
-1. 从 `origin/dev` 拉取最新代码。
-2. 在 `dev` 上开发新功能或修复问题。
-3. 把代码推送到 Gitee 的 `origin/dev` 分支（无写权限时走 PR，贡献方式以仓库根 `AGENTS.md` 为准）。
-4. 通知项目负责人合并到 `main`。
-
-### 3.1 首次参与项目
-
-#### 命令行方式
-
-```bash
-# 克隆项目
-git clone https://github.com/spiritgs2002-tech/wczx-AI-Hub.git
-
-# 进入项目目录
-cd wczx-ai-hub-release
-
-# 切换到 dev 分支
-git checkout dev
-
-# 拉取最新代码
-git pull origin dev
-```
-
-#### 图形化方式（Trae Code / VS Code）
-
-1. 打开 Trae Code，点击 **文件 → 打开文件夹**，选择项目目录。
-2. 点击左侧活动栏的 **源代码管理** 图标（分支图标）。
-3. 点击底部状态栏的分支名称，选择 `dev`。
-4. 点击源代码管理面板顶部的 **···** → **拉取**，或 **从...拉取** → 选择 `origin/dev`。
-
-### 3.2 日常开发流程
-
-#### 命令行方式
-
-```bash
-# 每天开始工作前，先同步 dev
-git checkout dev
-git pull origin dev
-
-# 编写代码...
-
-# 提交代码
-git add .
-git commit -m "feat: 你的改动说明"
-
-# 推送到 Gitee 的 dev
-git push origin dev
-```
-
-#### 图形化方式
-
-1. **切换分支**：点击底部状态栏分支名称 → 选择 `dev`。
-2. **拉取代码**：点击 **···** → **从...拉取** → 选择 `origin/dev`。
-3. **编写代码**：修改文件。
-4. **暂存更改**：在源代码管理面板中，点击文件右侧的 **+** 号。
-5. **填写提交信息**：在输入框中输入，例如 `feat: 新增课堂搜索功能`。
-6. **提交**：点击 **提交** 按钮。
-7. **推送**：点击 **推送** 按钮，将 `dev` 推送到 Gitee。
-
-### 3.3 合作者不能做的事
-
-- **不要直接修改 `main` 分支。**
-- **不要直接推送到 `github-release`。**
-- 合并到 `main` 和同步到 GitHub 由项目负责人统一操作。
-
----
-
-## 四、项目负责人操作指南
-
-作为项目负责人，你的主要职责是：
-1. 管理 `dev` 分支上的开发进度。
-2. 在合适的时候把 `dev` 合并到 `main`。
-3. 把 `main` 推送到 Gitee。
-4. 把 `main` 同步到 GitHub 国际版。
-
-### 4.0 每天开工第一步：先处理待合并的 PR
-
-在基于 `dev` 做任何开发之前，先确认有没有合作者提了**还没合并**的 PR —— PR 未合并 = 改动还不在 `dev` 里，在旧代码上继续开发会产生冲突。
-
-> 若使用 AI 编程助手，这一步已由**仓库内规则文件**接管：助手在会话开始时会自动读到并提醒，无需你记得。
-> 规则入口见仓库根目录 **`AGENTS.md`**（跨工具的规范事实来源；Trae 桌面版需在「设置 → 规则 → 导入设置」开一次「将 AGENTS.md 包含在上下文中」开关）。
-> 各工具专属目录（`.trae/rules/`、`.codebuddy/rules/`）里**只放指向 `AGENTS.md` 的薄指针**，正文不复制 —— 详见文末「附录：AI 协作规范写在哪」。
-
-```bash
-# 查待合并的 PR
-curl -s -H "Authorization: Bearer $GITEE_TOKEN" \
-  "https://api.github.com/repos/spiritgs2002-tech/wczx-AI-Hub/pulls?state=open"
-
-# 合并某个 PR（<编号> 换成上面的 PR 编号）
-curl -s -X PUT -H "Authorization: Bearer $GITEE_TOKEN" \
-  "https://api.github.com/repos/spiritgs2002-tech/wczx-AI-Hub/pulls/<编号>/merge"
-```
-
-`GITEE_TOKEN` 获取：Gitee → 设置 → 私人令牌 → 新建令牌，勾选仓库读写（`projects`）权限；在本机设为环境变量即可（Windows：`setx GITEE_TOKEN "你的令牌"`），**不要提交到仓库**。
-
-### 4.1 在 dev 上开发
-
-#### 命令行方式
-
-```bash
-# 切换到 dev 分支
-git checkout dev
-
-# 编写代码...
-
-# 提交代码
-git add .
-git commit -m "feat: 新增 xxx 功能"
-
-# 推送到私有仓库备份（dev 的上游指向 private，直接 git push 即可）
-git push
-```
-
-#### 图形化方式
-
-与合作开发者相同：切换到 `dev` → 拉取 → 修改 → 暂存 → 提交 → 推送。
-（注意：负责人日常推送到 `private`，合作者推送到 `origin`。）
-
-### 4.2 合并 dev 到 main 并发布
-
-#### 命令行方式
-
-```bash
-# 0. 先把本地开发成果备份到私有仓库
-git push
-
-# 1. 确保 dev 是最新的（拉取合作者在 origin/dev 上的贡献）
-git checkout dev
-git pull origin dev
-
-# 2. 切换到 main
-git checkout main
-
-# 3. 拉取 main 最新代码，避免覆盖他人提交
-git pull origin main
-
-# 4. 把 dev 合并到 main
-git merge dev
-
-# 5. 推送到 Gitee
-git push origin main
-
-# 6. 同步到 GitHub 国际版
-git push github-release main
-```
-
-#### 图形化方式
-
-1. **切换到 dev 并拉取最新代码**：底部状态栏选择 `dev` → **从...拉取** → `origin/dev`。
-2. **切换到 main**：底部状态栏选择 `main`。
-3. **拉取 main 最新代码**：**从...拉取** → `origin/main`。
-4. **合并 dev 到 main**：点击底部状态栏分支名称 → **合并分支...** → 选择 `dev`。
-5. **推送到 Gitee**：点击 **推送** 按钮。
-6. **同步到 GitHub**：
-   - 方式一（推荐）：打开底部 **终端**，输入 `git push github-release main`。
-   - 方式二：点击 **···** → **推送到...** → 选择 `github-release`。
-
-> 推送到 `github-release` 建议用终端，因为 IDE 默认只显示 `origin`，操作更直接。
-
-### 4.3 发布前检查清单
-
-每次发布前确认：
-- [ ] `dev` 分支上的功能已经测试通过。
-- [ ] 本地 `dev` 已推送到私有仓库备份（在 `dev` 上执行 `git push`）。
-- [ ] 合并前先在 `main` 上执行了 `git pull origin main`。
-- [ ] 合并后没有冲突。
-- [ ] `main` 已推送到 Gitee。
-- [ ] `main` 已同步到 GitHub。
-
----
-
-## 五、完整协作流程图
-
-> 下图展示**合作者贡献 → 发布**的主链路。负责人日常开发的 `private/dev` 备份链路不在此图（见 §4.1）。
-
-```
-┌─────────────────┐
-│  合作开发者 A    │
-│  在 dev 上开发   │
-└────────┬────────┘
-         │ git push origin dev
-         ▼
-┌─────────────────┐
-│  合作开发者 B    │
-│  在 dev 上开发   │
-└────────┬────────┘
-         │ git push origin dev
-         ▼
-┌─────────────────────────┐
-│   Gitee 上的 dev 分支    │
-└───────────┬─────────────┘
-            │
-            ▼
-┌─────────────────────────┐
-│    项目负责人审查/测试    │
-│   git checkout main     │
-│   git merge dev         │
-└───────────┬─────────────┘
-            │
-            ▼
-┌─────────────────────────┐
-│   Gitee 上的 main 分支   │
-│   国内发布版本           │
-└───────────┬─────────────┘
-            │ git push github-release main
-            ▼
-┌─────────────────────────┐
-│  GitHub 上的 main 分支   │
-│   国际发布版本           │
-└─────────────────────────┘
-```
-
----
-
-## 六、命令行与图形化操作对照表
-
-| 目的 | 命令行 | Trae / VS Code 图形化 |
-|---|---|---|
-| 切换分支 | `git checkout dev` | 点击底部状态栏分支名称 → 选择分支 |
-| 拉取代码 | `git pull origin dev` | **···** → **从...拉取** → 选择远程分支 |
-| 暂存文件 | `git add 文件名` | 点击文件右侧 **+** |
-| 提交代码 | `git commit -m "描述"` | 填写提交信息 → 点击 **提交** |
-| 推送代码 | `git push`（推当前分支上游：负责人 dev→private，合作者 dev→origin） | 点击 **推送** |
-| 合并分支 | `git merge dev` | 点击分支名称 → **合并分支...** |
-| 推送到 GitHub | `git push github-release main` | 建议用终端执行 |
-
----
-
-## 七、常见问题
-
-### Q1：为什么合作者不直接推送到 main？
-
-`main` 是发布分支，需要保证稳定。由项目负责人统一合并和发布，可以避免未经测试的代码进入发布版本。
-
-### Q2：dev 分支上已经有其他人的提交，我该怎么同步？
-
-```bash
-git checkout dev
-git pull origin dev
-```
-
-如果和你本地的修改有冲突，Git 会提示你解决。解决后重新提交并推送。
-
-### Q3：我想提交一个功能，但还没有完成，可以推送吗？
-
-可以。只要你所在的分支是 `dev`，就可以推送。如果功能没完成，建议和团队成员沟通，避免影响他人。
-
-### Q4：项目负责人合并时出现冲突怎么办？
-
-1. 在本地解决冲突。
-2. 测试通过后再提交。
-3. 然后推送 `main` 到 Gitee 和 GitHub。
-
-```bash
-git checkout main
-git merge dev
-# 解决冲突...
-git add .
-git commit -m "merge: 合并 dev 到 main"
-git push origin main
-git push github-release main
-```
-
-图形化方式下，冲突文件会用颜色标出，点击文件可以逐行选择保留哪一部分。
-
-### Q5：GitHub 上的国际版和 Gitee 上的 main 必须完全一致吗？
-
-是的。国际版只发布 `main` 分支的内容，不做额外定制。
-
----
-
-## 八、命令速查表
-
-| 目的 | 命令 |
+| 项目 | 当前约定 |
 |---|---|
-| 切换到 dev | `git checkout dev` |
-| 同步 dev 最新代码 | `git pull origin dev`（合并合作者贡献）；负责人日常用 `git pull private dev` |
-| 提交代码 | `git add . && git commit -m "描述"` |
-| 推送 dev（负责人日常备份） | `git push`（上游 private/dev） |
-| 切换到 main | `git checkout main` |
-| 拉取 main 最新代码 | `git pull origin main` |
-| 合并 dev 到 main | `git merge dev` |
-| 推送 main 到 Gitee | `git push origin main` |
-| 同步 main 到 GitHub | `git push github-release main` |
-| 查看当前状态 | `git status` |
-| 查看远程仓库 | `git remote -v` |
-| 查看所有分支 | `git branch -a` |
+| 唯一仓库 | `https://github.com/spiritgs2002-tech/wczx-AI-Hub.git`（私有） |
+| 远程名称 | `origin` |
+| 集成与发布主干 | `main` |
+| Codex 工作分支 | `codex/*` |
+| Claude 工作分支 | `claude/*` |
 
----
+不在 main 上直接开发，不再使用共享 dev 主干、私有开发远程或国内/国际双仓库同步流程。客户端升级检查读取 main 的 `public/latest.json`；仓库私有时，未授权客户端无法直接读取，自动升级不可用。
 
-## 九、可选：命令简化方案
+## 二、工作目录与文件分工
 
-如果觉得命令太长，可以考虑以下简化方案。这些方案**不是必须**的，只是提供参考，是否采用由团队决定。
+| 执行者 | 目录 | 说明 |
+|---|---|---|
+| Codex | `~/Desktop/wczx-AI-Hub` | 主工作目录，只使用 `codex/*` 工作分支 |
+| Claude | `~/Desktop/wczx-AI-Hub-claude` | 同仓库 worktree，只使用 `claude/*` 工作分支 |
 
-### 方案 A：npm scripts（推荐）
+worktree 共享对象库、分支和提交，但文件工作区独立。不要在对方目录编辑、清理或切换分支，也不要让两个目录同时检出同一分支。
 
-在 `package.json` 中添加：
+每次任务按文件清单分工，不修改另一方负责的文件。需要越界时先停下告诉用户；任务卡列出的明确例外按例外执行。Codex 的工程加固提交由 Claude 统一集成，Codex 不推送、不合并 main。
 
-```json
-"git:sync-dev": "git checkout dev && git pull private dev",
-"git:push-dev": "git push",
-"git:release": "git push && git checkout main && git pull origin main && git merge dev && git push origin main && git push github-release main"
-```
+## 三、开工与日常提交
 
-使用：
+### 命令行（Codex 示例）
 
 ```bash
-npm run git:sync-dev
-npm run git:release
-npm run git:push-dev
-```
-
-### 方案 B：Git 别名
-
-每个开发者本地配置：
-
-```bash
-git config --global alias.sync-dev '!git checkout dev && git pull private dev'
-git config --global alias.release '!git push && git checkout main && git pull origin main && git merge dev && git push origin main && git push github-release main'
-```
-
-使用：
-
-```bash
-git sync-dev
-git release
-```
-
-### 方案 C：Shell 脚本
-
-创建 `scripts/release.sh`：
-
-```bash
-#!/bin/bash
-set -e
-git checkout dev
-git push
-git pull origin dev
-git checkout main
+cd ~/Desktop/wczx-AI-Hub
+git status
+# 只有工作区干净时才切换；保留已有未提交工作
+git switch main
 git pull origin main
-git merge dev
-git push origin main
-git push github-release main
+git switch -c codex/任务名
+git log --oneline -5 -- <目标文件>
 ```
 
-使用：
+先完整阅读 AGENTS.md，再按文件归属修改。合作者刚修改同一文件时，先说明重叠风险并拆分区域。已有任务分支时继续该分支，不要反复创建。
+
+Claude 在自己的 worktree 中从已同步的 `origin/main` 创建 `claude/任务名`，不要在 Codex 目录中切分支。首次建立 worktree 由项目负责人安排，已有目录不重复初始化。
+
+完成一个独立事项后：
 
 ```bash
-bash scripts/release.sh
+npx tsc --noEmit
+npx prisma generate && npm run build
+git diff --check
+git diff -- <本次负责文件>
+git add <本次负责文件>
+git diff --cached --stat
+git commit -m "fix: 说明做了什么以及为什么"
+git status
 ```
 
----
+只暂存本次负责文件。`.env`、数据库、node_modules、.next 和日志不得提交。代码与 §5 护栏注释同一提交，提交信息一件事一个。
 
-## 十、总结
+### Trae / VS Code 图形界面
 
-- **合作开发者**：只在 `dev` 分支上开发，推送到 Gitee 的 `origin/dev`（或走 PR，见 `AGENTS.md`）。
-- **项目负责人**：日常开发推送到私有仓库 `private/dev`；发布时合并 `dev` 到 `main`，推送到 Gitee，同步到 GitHub。
-- **核心原则**：`main` 和 GitHub 是国际/国内发布分支，保持稳定性，不直接开发。
+1. 打开自己的工作目录，源代码管理面板确认无未提交改动。
+2. 切到 main，从 origin/main 拉取，再新建对应前缀的任务分支。
+3. 修改后逐个检查差异，只暂存本次文件；在终端完成类型检查和构建。
+4. 填写说明并本地提交；当前任务没有推送授权时不要点击“同步更改”或“推送”。
 
-按照这个流程，国内版和国际版可以保持一致，团队协作也不容易出错。
+Trae 桌面版需在设置 → 规则 → 导入设置中启用“将 AGENTS.md 包含在上下文中”。其他工具的入口见 AGENTS.md §0。
+
+## 四、同步、冲突与集成
+
+集成人合并前先检查各分支提交与文件归属，获取最新 origin/main。任务分支需要更新基线时，在自己的分支合并 origin/main；冲突必须逐块理解两边意图，保留互不影响的功能。
+
+- 拿不准的冲突交给用户确认，不通过删对方代码消除冲突。
+- 禁止 `git reset --hard`、`git checkout -- .` 丢弃工作。
+- 禁止 force push；仅用户明确批准的历史清理例外。
+- 如果已获推送授权而推送被拒，先拉取对应远程分支，处理差异后重新验证，不能强推。
+- 解冲突后再次执行 tsc（0 错误）和生产构建，再提交。
+
+集成由用户或任务指定的人执行。Codex 交付分支名、各提交说明、检查结果和剩余风险；本次由 Claude 在自己的目录统一合并。发布到 main 是独立授权动作，不因本地提交而自动执行。
+
+## 五、数据库与构建
+
+<!-- MUST BACK UP THE RESOLVED DATABASE: DATABASE_URL 相对 schema 目录解析，错误路径可能创建空库。 -->
+<!-- 📐 CONTRACT: 默认 prisma/dev.db；只用 db push 更新，不启用 WAL。 -->
+<!-- 🔗 RELATED: .env.example、prisma/schema.prisma、src/lib/prisma.ts、AGENTS.md §3。 -->
+<!-- ⛔ DO NOT REVERT: 禁止 start.sh 初始化、migrate reset 或仅靠 build 更新 schema；先核对并备份实际文件。 -->
+
+`.env.example` 使用 `DATABASE_URL="file:./dev.db"`，相对 `prisma/schema.prisma`，默认实际文件为 `prisma/dev.db`。核对本机 `.env` 后再操作；历史环境可能指向嵌套路径，不自动搬移或覆盖已有数据。
+
+```bash
+# 仅在已确认默认路径、并获准操作目标库时执行；先备份
+cp prisma/dev.db prisma/dev.db.backup-$(date +%Y%m%d-%H%M%S)
+npx prisma db push
+npx prisma generate
+```
+
+不提交备份。迁移目录与 `db:migrate` / `db:reset` 脚本已停用；不运行 `prisma migrate reset`。测试显式设置独立的 DATABASE_URL，并备份测试库后运行 db push，禁止对用户真库做验证写入。
+
+SQLite 初始化设置 `busy_timeout = 5000`。禁止开启 WAL，因为当前升级/备份仅复制 dev.db。不要运行 `bash start.sh`；生产启动使用 `npx next start -H 0.0.0.0 -p 3000`。
+
+`next.config.mjs` 的 `typescript.ignoreBuildErrors` 必须为 false；交付必须单独运行 `npx tsc --noEmit`，要求 0 错误，并通过 `npx prisma generate && npm run build`。长构建后台运行后检查退出码和日志，不能把任务已启动当作通过。
+
+## 六、交付核对
+
+- 分支与文件归属正确，main 未被直接修改或推送。
+- 每个提交职责单一，护栏注释与实现同步。
+- tsc 0 错误、Prisma generate 和 build 成功；schema 修改已在备份后的独立测试库验证。
+- 官方源审计 `npm audit --omit=dev --registry=https://registry.npmjs.org`，报告实际剩余漏洞，不用 force 自动升级大版本。
+- 工作区干净，暂存区与提交中没有凭据、数据库或构建产物。
+- 推送、合并与发布均依照本次任务授权；当前工程加固任务只本地提交。
 
 ---
 
