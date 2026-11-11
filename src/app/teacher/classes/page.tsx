@@ -19,6 +19,10 @@ import {
 import { copyText } from "@/lib/clipboard";
 import { AddIcon, ShareIcon, CopyIcon, DeleteIcon, CheckCircleIcon, UserIcon, UploadIcon, FileIcon, EditIcon } from "tdesign-icons-react";
 import TeacherLayout from "@/components/layout/TeacherLayout";
+// MUST USE THE OFFICIAL SHEETJS PACKAGE: npm 的 0.18.5 无修复版，改用官方 CDN 0.20.3。
+// 📐 CONTRACT: 保持 XLSX.read(binary) / sheet_to_json(header: 1) 的学生导入行为。
+// 🔗 RELATED: package.json、package-lock.json 的 xlsx CDN URL；本页 parseExcelFile 的 Excel 分支。
+// ⛔ DO NOT REVERT: 不要换回 npm 上的旧包；更新版本时复测中文姓名、学号及空密码。
 import * as XLSX from "xlsx";
 
 interface ClassItem {

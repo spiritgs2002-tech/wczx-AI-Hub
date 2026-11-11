@@ -1558,3 +1558,16 @@ KPI：参与 45 人 ｜ 平均分 82.3 ｜ 最高分 100 ｜ 三星人数 28
 蔡国、曹鹏、丁勤芝、耿秋萍、李志伟、刘蓓、龙高艳、陆志平、黄小莉、祁小明、芮清、单道华、沈峥嵘、石巍、宋宇、唐剑、薛文兴、徐展、许晓伟、许嫣娜、杨金勇、杨若晨、袁园、张维、赵华、郑雅芬、周波、周梦香、朱丽彬、宗序连；
 
 温州科技高中、温州大学QuickForm开源项目组，表单采集部分代码来源于该项目。
+
+---
+
+## 依赖安全维护
+
+<!-- MUST KEEP PATCHED DEPENDENCIES: 已删除未引用的 next-auth；SheetJS 必须使用官方 CDN，排版插件解析器覆盖到同一主版本的修复版。 -->
+<!-- 📐 CONTRACT: 保持 Next 14 大版本与 Excel 导入 API；不使用 npm audit fix --force 或未经验证的跨版本覆盖。 -->
+<!-- 🔗 RELATED: package.json dependencies/overrides、package-lock.json、src/app/teacher/classes/page.tsx 的 parseExcelFile。 -->
+<!-- ⛔ DO NOT REVERT: 不退回 npm xlsx 0.18.5；typography 上游解除 6.0.10 锁定前保留解析器 6.1.5 覆盖，更新后复测导入、排版和构建。 -->
+
+SheetJS 使用[官方安装说明](https://docs.sheetjs.com/docs/getting-started/installation/nodejs/)指定的 CDN 0.20.3 包，导入名仍为 `xlsx`。排版插件 `@tailwindcss/typography` 锁定旧 `postcss-selector-parser`，通过 package.json 的定向覆盖使用兼容的 6.1.5。
+
+复查命令：`npm audit --omit=dev --registry=https://registry.npmjs.org`。2026-11-12 的复查剩余 6 项：Next（critical）、Next 内嵌 PostCSS（high），以及 KaTeX / micromark-extension-math / rehype-katex / remark-math（4 项 low）。Next 保持 14.2.35；KaTeX 链的修复版本超出上游声明范围，未强制覆盖或降级。审计结果会变化，交付时必须重新运行命令。
