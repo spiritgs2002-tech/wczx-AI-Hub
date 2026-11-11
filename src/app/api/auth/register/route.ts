@@ -31,12 +31,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // TODO: 检查资源广场网站是否已有此手机号注册
-    // const externalCheck = await fetch("http://www.maoyouhui.org/api/check-phone", {...});
-    // if (externalCheck.ok && externalCheck.data.exists) {
-    //   return NextResponse.json({ error: "该手机号已在资源广场注册，请使用原账号登录" }, { status: 409 });
-    // }
-
     const hashedPassword = await bcrypt.hash(password, 10);
     let recoveryAnswerHash = null;
     let passwordKeyHash = null;
@@ -66,8 +60,7 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    // TODO: 同步到资源广场网站
-    // await fetch("http://www.maoyouhui.org/api/sync-user", {...});
+    // ⛔ DO NOT ADD BACK：不向任何第三方站点同步教师个人信息（原注释掉的 maoyouhui.org sync-user / check-phone 已于 2026-11-11 删除）
 
     // 异步填充演示数据（不阻塞 token 返回）
     // 仅第一个教师注册时执行（注册路由已限定本地部署仅一个教师账号）

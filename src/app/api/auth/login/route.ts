@@ -3,33 +3,9 @@ import { prisma } from "@/lib/prisma";
 import { createToken } from "@/lib/auth";
 import bcrypt from "bcryptjs";
 
-const ANALYTICS_URL = process.env.NEXT_PUBLIC_ANALYTICS_URL || "http://www.maoyouhui.org/api/active";
-
-async function reportLogin(user: { name: string; phone: string; email: string | null; school: string | null }) {
-  if (!ANALYTICS_URL) return;
-  try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 5000);
-    await fetch(ANALYTICS_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        deviceId: `server-${user.phone}`,
-        timestamp: new Date().toISOString(),
-        version: "0.1.0",
-        schoolName: user.school || "未设置",
-        teacherName: user.name || "未知",
-        phone: user.phone || "",
-        email: user.email || "",
-        action: "login",
-      }),
-      signal: controller.signal,
-    });
-    clearTimeout(timer);
-  } catch {
-    // 静默处理
-  }
-}
+// ⛔ DO NOT ADD BACK：此处原有登录上报函数，每次教师登录都把姓名、手机号、邮箱、学校以明文 HTTP 发到第三方站点
+//   （原作者的 maoyouhui.org，注释却写“匿名上报”，且留空环境变量也关不掉）。学校场景涉及个人信息保护，2026-11-11 移除。
+//   如确需统计活跃度，只能上报不含个人信息的随机设备 ID，且必须默认关闭、由管理员显式开启。
 
 export async function POST(req: NextRequest) {
   try {
@@ -66,9 +42,6 @@ export async function POST(req: NextRequest) {
       role: user.role,
       name: user.name,
     });
-
-    // 服务端上报（不阻塞响应）
-    reportLogin({ name: user.name, phone: user.phone || "", email: user.email, school: user.school });
 
     return NextResponse.json({
       token,
