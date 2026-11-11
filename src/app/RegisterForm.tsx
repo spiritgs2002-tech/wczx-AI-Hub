@@ -171,9 +171,9 @@ export default function RegisterForm() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#0052D9] to-[#00A870] flex items-center justify-center py-6">
       <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-md">
-        <p className="text-center text-gray-400 text-xs mb-2">觉课智能体</p>
+        <p className="text-center text-gray-400 text-xs mb-2">文昌中学智能体</p>
         <h1 className="text-xl font-bold text-center mb-1 text-[#1A1A1A]">
-          {showImport ? "导入已有账号" : "觉课智能体用户配置"}
+          {showImport ? "导入已有账号" : "文昌中学智能体用户配置"}
         </h1>
         <p className="text-center text-gray-400 text-xs mb-5">QuickClass Agent: Student-centric, Class-focused.</p>
 

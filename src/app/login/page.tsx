@@ -60,7 +60,7 @@ export default function LoginPage() {
             QuickClass Agent
           </h1>
           <p className="text-xl font-semibold text-gray-800 mb-2">
-            宁创教学智能体
+            文昌中学智能体
           </p>
           <p className="text-gray-500 text-sm">Student-centric, Class-focused.</p>
         </div>
