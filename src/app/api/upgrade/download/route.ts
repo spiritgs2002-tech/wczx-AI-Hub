@@ -9,27 +9,31 @@ import { prepareUpgradeFromZip } from "@/lib/upgrade-prepare";
  * 一键在线更新：服务端自动下载官方升级包并准备升级
  * POST /api/upgrade/download
  *
- * 数据来源：Gitee 仓库 main 分支的整包 zip（与网页"下载 ZIP"按钮同源，
+ * 数据来源：升级仓库（见 RELEASE_REPO_URL）main 分支的整包 zip（与网页"下载 ZIP"按钮同源，
  * 管理者同步 dev → main 后新版本即自动可用，无需人工打包）。
  *
  * 安全设计：
- * 1. 下载地址由服务端拼接（host 锁定 gitee.com + 官方仓库路径），前端无法指定任意 URL
+ * 1. 下载地址由服务端拼接（host 限定 github.com / gitee.com + 固定仓库路径），前端无法指定任意 URL
  * 2. 版本闸门：升级包版本必须严格高于当前版本，防降级/重复安装
  * 3. 复用公共准备逻辑：结构校验 + 真库备份（md5 校验）后才写升级标记
  */
 
-// 与 /api/version/check 同源的官方仓库地址（版本号真源 latest.json 所在仓库）
-const RELEASE_REPO_URL = "https://gitee.com/maoyouhui/quickclass-release";
+// 与 /api/version/check 同源的升级仓库地址（版本号真源 latest.json 所在仓库）
+// 📐 CONTRACT：MUST STAY IN SYNC with LATEST_VERSION_URL in src/app/api/version/check/route.ts，以及 public/latest.json 的 downloadUrl。
+const RELEASE_REPO_URL = "https://github.com/spiritgs2002-tech/quickclass-release";
 
 const MAX_ZIP_SIZE = 200 * 1024 * 1024; // 200MB
 
 function buildArchiveUrl(): string | null {
   try {
     const u = new URL(RELEASE_REPO_URL);
-    // host 锁定 gitee.com，防止仓库地址被篡改后指向任意站点
-    if (u.hostname !== "gitee.com") return null;
     const repo = u.pathname.replace(/\/+$/, "");
-    return `https://gitee.com${repo}/repository/archive/main.zip`;
+    // ⛔ DO NOT REMOVE the host allowlist：防止仓库地址被篡改后指向任意站点
+    // GitHub 归档直链会 302 到 codeload.github.com，Node fetch 自动跟随；zip 内带一层「仓库名-main/」顶级目录，
+    //   由 prepareUpgradeFromZip 的“单一顶级目录自动下钻”处理（src/lib/upgrade-prepare.ts）。
+    if (u.hostname === "github.com") return `https://github.com${repo}/archive/refs/heads/main.zip`;
+    if (u.hostname === "gitee.com") return `https://gitee.com${repo}/repository/archive/main.zip`;
+    return null;
   } catch {
     return null;
   }
