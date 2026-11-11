@@ -294,17 +294,33 @@ export default function TeacherSettingsPage() {
 
   // 保存用户信息
   const handleSaveProfile = async () => {
-    if (!profileForm.name) {
+    if (!profileForm.name.trim()) {
       MessagePlugin.warning("请输入姓名");
       return;
     }
-    if (!profileForm.phone) {
+    const phone = profileForm.phone.trim();
+    if (!phone) {
       MessagePlugin.warning("请输入手机号");
+      return;
+    }
+    if (!/^1\d{10}$/.test(phone)) {
+      MessagePlugin.warning("请输入 11 位手机号");
+      return;
+    }
+    const email = profileForm.email.trim();
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      MessagePlugin.warning("邮箱格式不正确");
+      return;
+    }
+    // 手机号是登录账号：改号必须填当前密码（后端同样强制校验，见 api/auth/teacher/profile PUT）
+    const phoneChanged = phone !== (userProfile?.phone || "");
+    if (phoneChanged && !profileForm.oldPassword) {
+      MessagePlugin.warning("修改手机号需要在下方「当前密码」中填写当前密码");
       return;
     }
 
     // 如果要修改密码，必须同时填写当前密码和新密码
-    if (profileForm.password || profileForm.oldPassword) {
+    if (profileForm.password) {
       if (!profileForm.oldPassword) {
         MessagePlugin.warning("请输入当前密码");
         return;
@@ -325,12 +341,15 @@ export default function TeacherSettingsPage() {
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
-          name: profileForm.name,
+          name: profileForm.name.trim(),
           gender: profileForm.gender || null,
           school: profileForm.school || null,
           motto: profileForm.motto || null,
           studentMotto: profileForm.studentMotto || null,
-          ...(profileForm.password ? { password: profileForm.password, oldPassword: profileForm.oldPassword } : {}),
+          phone,
+          email,
+          ...(profileForm.password ? { password: profileForm.password } : {}),
+          ...(profileForm.password || phoneChanged ? { oldPassword: profileForm.oldPassword } : {}),
         }),
       });
 
@@ -343,6 +362,8 @@ export default function TeacherSettingsPage() {
           oldPassword: "",
           name: data.name || "",
           gender: data.gender || "",
+          phone: data.phone || "",
+          email: data.email || "",
           motto: data.motto || "",
           studentMotto: data.studentMotto || ""
         }));
@@ -352,10 +373,15 @@ export default function TeacherSettingsPage() {
         if (storedUser) {
           const user = JSON.parse(storedUser);
           user.name = data.name;
+          user.phone = data.phone;
+          user.email = data.email;
           user.gender = data.gender;
           user.motto = data.motto;
           user.studentMotto = data.studentMotto;
           localStorage.setItem("user", JSON.stringify(user));
+          // 📐 CONTRACT：通知 TeacherLayout 重新读取 localStorage.user，顶部「XX的工作台」立即显示新姓名。
+          // 🔗 RELATED：监听方 src/components/layout/TeacherLayout.tsx，事件名两边 MUST STAY IN SYNC。
+          window.dispatchEvent(new Event("wczx-user-updated"));
         }
 
         // 同步保存学生座右铭到系统配置
@@ -1356,9 +1382,12 @@ export default function TeacherSettingsPage() {
                 <label className="block text-sm font-medium text-[var(--foreground)] mb-2">
                   姓名 <span className="text-[var(--danger)]">*</span>
                 </label>
+                {/* ⛔ DO NOT REVERT to disabled：早期版本把姓名框写死为 disabled 且无 onChange，教师无法改名（无业务原因，
+                    教师登录用手机号而非姓名）。后端 PUT /api/auth/teacher/profile 会校验非空且 ≤30 字。 */}
                 <Input
                   value={profileForm.name}
-                  disabled
+                  onChange={(val) => setProfileForm({ ...profileForm, name: String(val) })}
+                  maxlength={30}
                   placeholder="请输入姓名"
                   size="large"
                 />
@@ -1390,12 +1419,17 @@ export default function TeacherSettingsPage() {
                 <label className="block text-sm font-medium text-[var(--foreground)] mb-2">
                   手机号 <span className="text-[var(--danger)]">*</span>
                 </label>
+                {/* 手机号可修改（即登录账号）：修改时须在下方「当前密码」填写当前密码，下次登录用新号 */}
                 <Input
                   value={profileForm.phone}
-                  disabled
+                  onChange={(val) => setProfileForm({ ...profileForm, phone: String(val) })}
+                  maxlength={11}
                   placeholder="请输入手机号（用于登录）"
                   size="large"
                 />
+                {profileForm.phone.trim() !== (userProfile?.phone || "") && (
+                  <p className="text-xs text-[var(--warning)] mt-1">手机号是登录账号，修改后请用新号码登录；保存前需在下方填写当前密码</p>
+                )}
               </div>
               <div>
                 <label className="block text-sm font-medium text-[var(--foreground)] mb-2">
@@ -1411,12 +1445,13 @@ export default function TeacherSettingsPage() {
             </div>
 
             <div className="pt-4 border-t border-[var(--card-border)]">
-              <label className="block text-sm font-medium text-[var(--muted)] mb-2">
-                邮箱（已绑定，不可修改）
+              <label className="block text-sm font-medium text-[var(--foreground)] mb-2">
+                邮箱（可选）
               </label>
               <Input
                 value={profileForm.email}
-                disabled
+                onChange={(val) => setProfileForm({ ...profileForm, email: String(val) })}
+                maxlength={100}
                 placeholder="请输入邮箱（可选）"
                 size="large"
               />

@@ -58,6 +58,17 @@ export default function TeacherLayout({
     }
   }, [router]);
 
+  // 设置页保存用户信息后会派发 wczx-user-updated，这里重新读取，顶部姓名无需刷新页面即更新。
+  // 🔗 RELATED：派发方 src/app/teacher/settings/page.tsx 的 handleSaveProfile，事件名 MUST STAY IN SYNC。
+  useEffect(() => {
+    const reload = () => {
+      const stored = localStorage.getItem("user");
+      if (stored) setUser(JSON.parse(stored));
+    };
+    window.addEventListener("wczx-user-updated", reload);
+    return () => window.removeEventListener("wczx-user-updated", reload);
+  }, []);
+
   // 监听 pathname 变化，关闭外部显示
   useEffect(() => {
     if (pathname && !pathname.startsWith("http")) {
