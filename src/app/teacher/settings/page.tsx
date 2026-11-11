@@ -564,7 +564,8 @@ export default function TeacherSettingsPage() {
     try {
       const res = await fetch("/api/system-config/test", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        // 接口已限教师调用（防止被借用探测内网），必须带登录令牌
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("token")}` },
         body: JSON.stringify({
           aiBaseUrl: item.baseURL,
           aiApiKey: item.apiKey,

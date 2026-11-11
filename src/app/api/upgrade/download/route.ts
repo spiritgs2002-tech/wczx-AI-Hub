@@ -47,6 +47,10 @@ export async function POST(request: Request) {
     if (!payload) {
       return NextResponse.json({ error: "未登录或登录已过期" }, { status: 401 });
     }
+    // ⛔ DO NOT REMOVE：注释写“仅教师可触发”但原先只校验了登录态，学生也能触发系统升级（2026-11-11 修复）
+    if (payload.role !== "TEACHER") {
+      return NextResponse.json({ error: "仅教师可执行系统更新" }, { status: 403 });
+    }
 
     // 拼接官方仓库整包直链
     const archiveUrl = buildArchiveUrl();

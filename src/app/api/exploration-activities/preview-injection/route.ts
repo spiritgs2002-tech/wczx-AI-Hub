@@ -1,16 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { verifyToken } from "@/lib/auth";
+import { requireTeacher } from "@/lib/api-auth";
 import { createDashScopeClient } from "@/lib/ai";
 import { generateText } from "ai";
 import { aiPreviewPrompt, generateAutoScoringScript } from "@/lib/prompts/exploration-submit";
 
 export async function POST(req: NextRequest) {
   try {
-    const token = req.headers.get("authorization")?.replace("Bearer ", "");
-    if (!token) return new Response("未登录", { status: 401 });
-    const payload = await verifyToken(token);
-    if (!payload) return new Response("登录已过期", { status: 401 });
+    // 仅教师可调用（⛔ DO NOT REMOVE）：AI 生成会消耗教师配置的模型额度，学生 token 不得调用
+    const auth = await requireTeacher(req);
+    if (auth instanceof NextResponse) return auth;
 
     const body = await req.json();
     const { htmlContent, explorationId, subProjectId } = body;
