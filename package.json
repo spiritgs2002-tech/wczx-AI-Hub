@@ -10,10 +10,8 @@
     "pack": "node scripts/pack-dist.js",
     "pack-release": "node scripts/pack-release.mjs",
     "db:push": "prisma db push --skip-generate",
-    "db:migrate": "prisma migrate dev",
     "db:seed": "npx tsx prisma/seed-full.ts",
-    "test:charts": "tsx scripts/test-report-charts.ts",
-    "db:reset": "prisma migrate reset --force"
+    "test:charts": "tsx scripts/test-report-charts.ts"
   },
   "prisma": {
     "seed": "npx tsx prisma/seed-full.ts"

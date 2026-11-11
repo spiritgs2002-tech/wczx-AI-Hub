@@ -18,6 +18,14 @@ model AIInsight {
   createdAt DateTime @default(now())
   Class     Class    @relation(fields: [classId], references: [id], onDelete: Cascade)
   User      User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // MUST KEEP LOOKUP INDEXES: 外键及归属筛选避免扫描整表；仅增加非唯一索引，不改变字段和数据。
+  // 📐 CONTRACT: 已有复合索引的首列不重复添加；新增查询先检查索引覆盖。
+  // 🔗 RELATED: src/lib/prisma.ts（SQLite 连接）；AGENTS.md §3①（备份后 db push）。
+  // ⛔ DO NOT REVERT: SQLite 不自动为外键建索引；不要用删表或 migrate reset 应用这些索引。
+  @@index([userId])
+  @@index([classId])
+  @@index([scopeId])
 }
 
 model AnalysisTemplate {
@@ -37,6 +45,12 @@ model AnalysisTemplate {
   subProjectsAsClassInsightTemplate           SubProject[]         @relation("SubProject_classInsightTemplateIdToAnalysisTemplate")
   subProjectsAsStudentInsightTemplate         SubProject[]         @relation("SubProject_studentInsightTemplateIdToAnalysisTemplate")
   preview                                     TemplatePreview?
+
+  // MUST KEEP LOOKUP INDEXES: 外键及归属筛选避免扫描整表；仅增加非唯一索引，不改变字段和数据。
+  // 📐 CONTRACT: 已有复合索引的首列不重复添加；新增查询先检查索引覆盖。
+  // 🔗 RELATED: src/lib/prisma.ts（SQLite 连接）；AGENTS.md §3①（备份后 db push）。
+  // ⛔ DO NOT REVERT: SQLite 不自动为外键建索引；不要用删表或 migrate reset 应用这些索引。
+  @@index([teacherId])
 }
 
 /// 模板「效果预览」：AI 用示例数据把模板跑一次的结果，一条模板只保留一份（刷新即覆盖）
@@ -75,6 +89,12 @@ model Class {
   TaskAssignment             TaskAssignment[]
   StudentProject             StudentProject[]
   User_User_classIdToClass   User[]             @relation("User_classIdToClass")
+
+  // MUST KEEP LOOKUP INDEXES: 外键及归属筛选避免扫描整表；仅增加非唯一索引，不改变字段和数据。
+  // 📐 CONTRACT: 已有复合索引的首列不重复添加；新增查询先检查索引覆盖。
+  // 🔗 RELATED: src/lib/prisma.ts（SQLite 连接）；AGENTS.md §3①（备份后 db push）。
+  // ⛔ DO NOT REVERT: SQLite 不自动为外键建索引；不要用删表或 migrate reset 应用这些索引。
+  @@index([teacherId])
 }
 
 model Conversation {
@@ -89,6 +109,14 @@ model Conversation {
   Class                Class               @relation(fields: [classId], references: [id], onDelete: Cascade)
   User                 User                @relation(fields: [userId], references: [id])
   Message              Message[]
+
+  // MUST KEEP LOOKUP INDEXES: 外键及归属筛选避免扫描整表；仅增加非唯一索引，不改变字段和数据。
+  // 📐 CONTRACT: 已有复合索引的首列不重复添加；新增查询先检查索引覆盖。
+  // 🔗 RELATED: src/lib/prisma.ts（SQLite 连接）；AGENTS.md §3①（备份后 db push）。
+  // ⛔ DO NOT REVERT: SQLite 不自动为外键建索引；不要用删表或 migrate reset 应用这些索引。
+  @@index([userId])
+  @@index([classId])
+  @@index([presetConversationId])
 }
 
 model DocumentChunk {
@@ -99,6 +127,12 @@ model DocumentChunk {
   metadata   String?
   createdAt  DateTime @default(now())
   Material   Material @relation(fields: [materialId], references: [id])
+
+  // MUST KEEP LOOKUP INDEXES: 外键及归属筛选避免扫描整表；仅增加非唯一索引，不改变字段和数据。
+  // 📐 CONTRACT: 已有复合索引的首列不重复添加；新增查询先检查索引覆盖。
+  // 🔗 RELATED: src/lib/prisma.ts（SQLite 连接）；AGENTS.md §3①（备份后 db push）。
+  // ⛔ DO NOT REVERT: SQLite 不自动为外键建索引；不要用删表或 migrate reset 应用这些索引。
+  @@index([materialId])
 }
 
 model Evaluation {
@@ -112,6 +146,13 @@ model Evaluation {
   createdAt DateTime @default(now())
   Class     Class    @relation(fields: [classId], references: [id], onDelete: Cascade)
   User      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // MUST KEEP LOOKUP INDEXES: 外键及归属筛选避免扫描整表；仅增加非唯一索引，不改变字段和数据。
+  // 📐 CONTRACT: 已有复合索引的首列不重复添加；新增查询先检查索引覆盖。
+  // 🔗 RELATED: src/lib/prisma.ts（SQLite 连接）；AGENTS.md §3①（备份后 db push）。
+  // ⛔ DO NOT REVERT: SQLite 不自动为外键建索引；不要用删表或 migrate reset 应用这些索引。
+  @@index([userId])
+  @@index([classId])
 }
 
 model Exercise {
@@ -129,6 +170,13 @@ model Exercise {
   Material        Material?         @relation(fields: [materialId], references: [id], onDelete: Cascade)
   Class           Class             @relation(fields: [classId], references: [id], onDelete: Cascade)
   ExerciseAttempt ExerciseAttempt[]
+
+  // MUST KEEP LOOKUP INDEXES: 外键及归属筛选避免扫描整表；仅增加非唯一索引，不改变字段和数据。
+  // 📐 CONTRACT: 已有复合索引的首列不重复添加；新增查询先检查索引覆盖。
+  // 🔗 RELATED: src/lib/prisma.ts（SQLite 连接）；AGENTS.md §3①（备份后 db push）。
+  // ⛔ DO NOT REVERT: SQLite 不自动为外键建索引；不要用删表或 migrate reset 应用这些索引。
+  @@index([classId])
+  @@index([materialId])
 }
 
 model ExerciseAttempt {
@@ -141,6 +189,13 @@ model ExerciseAttempt {
   createdAt  DateTime @default(now())
   User       User     @relation(fields: [userId], references: [id])
   Exercise   Exercise @relation(fields: [exerciseId], references: [id])
+
+  // MUST KEEP LOOKUP INDEXES: 外键及归属筛选避免扫描整表；仅增加非唯一索引，不改变字段和数据。
+  // 📐 CONTRACT: 已有复合索引的首列不重复添加；新增查询先检查索引覆盖。
+  // 🔗 RELATED: src/lib/prisma.ts（SQLite 连接）；AGENTS.md §3①（备份后 db push）。
+  // ⛔ DO NOT REVERT: SQLite 不自动为外键建索引；不要用删表或 migrate reset 应用这些索引。
+  @@index([exerciseId])
+  @@index([userId])
 }
 
 model ExplorationActionLog {
@@ -190,6 +245,13 @@ model ExplorationActivity {
   SubProject            SubProject              @relation(fields: [subProjectId], references: [id], onDelete: Cascade)
   ExplorationSubmission ExplorationSubmission[]
   AiCompanionMessage    AiCompanionMessage[]
+
+  // MUST KEEP LOOKUP INDEXES: 外键及归属筛选避免扫描整表；仅增加非唯一索引，不改变字段和数据。
+  // 📐 CONTRACT: 已有复合索引的首列不重复添加；新增查询先检查索引覆盖。
+  // 🔗 RELATED: src/lib/prisma.ts（SQLite 连接）；AGENTS.md §3①（备份后 db push）。
+  // ⛔ DO NOT REVERT: SQLite 不自动为外键建索引；不要用删表或 migrate reset 应用这些索引。
+  @@index([subProjectId])
+  @@index([qfTaskId])
 }
 
 model AiCompanionMessage {
@@ -203,6 +265,12 @@ model AiCompanionMessage {
   User                User                @relation(fields: [studentId], references: [id], onDelete: Cascade)
 
   @@index([explorationId, studentId])
+
+  // MUST KEEP LOOKUP INDEXES: 外键及归属筛选避免扫描整表；仅增加非唯一索引，不改变字段和数据。
+  // 📐 CONTRACT: 已有复合索引的首列不重复添加；新增查询先检查索引覆盖。
+  // 🔗 RELATED: src/lib/prisma.ts（SQLite 连接）；AGENTS.md §3①（备份后 db push）。
+  // ⛔ DO NOT REVERT: SQLite 不自动为外键建索引；不要用删表或 migrate reset 应用这些索引。
+  @@index([studentId])
 }
 
 model ExplorationSubmission {
@@ -223,6 +291,13 @@ model ExplorationSubmission {
   ExplorationActivity  ExplorationActivity    @relation(fields: [explorationId], references: [id], onDelete: Cascade)
 
   @@unique([explorationId, studentId])
+
+  // MUST KEEP LOOKUP INDEXES: 外键及归属筛选避免扫描整表；仅增加非唯一索引，不改变字段和数据。
+  // 📐 CONTRACT: 已有复合索引的首列不重复添加；新增查询先检查索引覆盖。
+  // 🔗 RELATED: src/lib/prisma.ts（SQLite 连接）；AGENTS.md §3①（备份后 db push）。
+  // ⛔ DO NOT REVERT: SQLite 不自动为外键建索引；不要用删表或 migrate reset 应用这些索引。
+  @@index([studentId])
+  @@index([qfRecordId])
 }
 
 model InsightTemplate {
@@ -282,6 +357,12 @@ model KnowledgeBase {
   enabled    Boolean  @default(true)
   createdAt  DateTime @default(now())
   updatedAt  DateTime
+
+  // MUST KEEP LOOKUP INDEXES: 外键及归属筛选避免扫描整表；仅增加非唯一索引，不改变字段和数据。
+  // 📐 CONTRACT: 已有复合索引的首列不重复添加；新增查询先检查索引覆盖。
+  // 🔗 RELATED: src/lib/prisma.ts（SQLite 连接）；AGENTS.md §3①（备份后 db push）。
+  // ⛔ DO NOT REVERT: SQLite 不自动为外键建索引；不要用删表或 migrate reset 应用这些索引。
+  @@index([teacherId])
 }
 
 // 图片组：教师级资产，课堂通过 imageGroupIds 引用（对齐知识库模式）
@@ -294,6 +375,12 @@ model ImageGroup {
   images      ImageAsset[]
   createdAt   DateTime     @default(now())
   updatedAt   DateTime
+
+  // MUST KEEP LOOKUP INDEXES: 外键及归属筛选避免扫描整表；仅增加非唯一索引，不改变字段和数据。
+  // 📐 CONTRACT: 已有复合索引的首列不重复添加；新增查询先检查索引覆盖。
+  // 🔗 RELATED: src/lib/prisma.ts（SQLite 连接）；AGENTS.md §3①（备份后 db push）。
+  // ⛔ DO NOT REVERT: SQLite 不自动为外键建索引；不要用删表或 migrate reset 应用这些索引。
+  @@index([teacherId])
 }
 
 // 组内单张图片，物理文件存 uploads/image-library/{groupId}/{cuid}.{ext}
@@ -307,6 +394,12 @@ model ImageAsset {
   fileSize     Int
   createdAt    DateTime   @default(now())
   ImageGroup   ImageGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  // MUST KEEP LOOKUP INDEXES: 外键及归属筛选避免扫描整表；仅增加非唯一索引，不改变字段和数据。
+  // 📐 CONTRACT: 已有复合索引的首列不重复添加；新增查询先检查索引覆盖。
+  // 🔗 RELATED: src/lib/prisma.ts（SQLite 连接）；AGENTS.md §3①（备份后 db push）。
+  // ⛔ DO NOT REVERT: SQLite 不自动为外键建索引；不要用删表或 migrate reset 应用这些索引。
+  @@index([groupId])
 }
 
 model LearningProgress {
@@ -318,6 +411,13 @@ model LearningProgress {
   lastStudiedAt  DateTime
   Class          Class    @relation(fields: [classId], references: [id], onDelete: Cascade)
   User           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // MUST KEEP LOOKUP INDEXES: 外键及归属筛选避免扫描整表；仅增加非唯一索引，不改变字段和数据。
+  // 📐 CONTRACT: 已有复合索引的首列不重复添加；新增查询先检查索引覆盖。
+  // 🔗 RELATED: src/lib/prisma.ts（SQLite 连接）；AGENTS.md §3①（备份后 db push）。
+  // ⛔ DO NOT REVERT: SQLite 不自动为外键建索引；不要用删表或 migrate reset 应用这些索引。
+  @@index([userId])
+  @@index([classId])
 }
 
 model LearningTask {
@@ -344,6 +444,14 @@ model LearningTask {
   User                   User              @relation(fields: [teacherId], references: [id])
   subProjects            SubProject[]
   assignments            TaskAssignment[]
+
+  // MUST KEEP LOOKUP INDEXES: 外键及归属筛选避免扫描整表；仅增加非唯一索引，不改变字段和数据。
+  // 📐 CONTRACT: 已有复合索引的首列不重复添加；新增查询先检查索引覆盖。
+  // 🔗 RELATED: src/lib/prisma.ts（SQLite 连接）；AGENTS.md §3①（备份后 db push）。
+  // ⛔ DO NOT REVERT: SQLite 不自动为外键建索引；不要用删表或 migrate reset 应用这些索引。
+  @@index([studentInsightTemplateId])
+  @@index([classInsightTemplateId])
+  @@index([teacherId])
 }
 
 model Material {
@@ -361,6 +469,13 @@ model Material {
   DocumentChunk DocumentChunk[]
   Exercise      Exercise[]
   Class         Class           @relation(fields: [classId], references: [id], onDelete: Cascade)
+
+  // MUST KEEP LOOKUP INDEXES: 外键及归属筛选避免扫描整表；仅增加非唯一索引，不改变字段和数据。
+  // 📐 CONTRACT: 已有复合索引的首列不重复添加；新增查询先检查索引覆盖。
+  // 🔗 RELATED: src/lib/prisma.ts（SQLite 连接）；AGENTS.md §3①（备份后 db push）。
+  // ⛔ DO NOT REVERT: SQLite 不自动为外键建索引；不要用删表或 migrate reset 应用这些索引。
+  @@index([classId])
+  @@index([teacherId])
 }
 
 model Message {
@@ -370,6 +485,12 @@ model Message {
   content        String
   createdAt      DateTime     @default(now())
   Conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  // MUST KEEP LOOKUP INDEXES: 外键及归属筛选避免扫描整表；仅增加非唯一索引，不改变字段和数据。
+  // 📐 CONTRACT: 已有复合索引的首列不重复添加；新增查询先检查索引覆盖。
+  // 🔗 RELATED: src/lib/prisma.ts（SQLite 连接）；AGENTS.md §3①（备份后 db push）。
+  // ⛔ DO NOT REVERT: SQLite 不自动为外键建索引；不要用删表或 migrate reset 应用这些索引。
+  @@index([conversationId])
 }
 
 model PresetConversation {
@@ -390,6 +511,14 @@ model PresetConversation {
   AnalysisTemplate_PresetConversation_classInsightTemplateIdToAnalysisTemplate   AnalysisTemplate? @relation("PresetConversation_classInsightTemplateIdToAnalysisTemplate", fields: [classInsightTemplateId], references: [id])
   AnalysisTemplate_PresetConversation_studentInsightTemplateIdToAnalysisTemplate AnalysisTemplate? @relation("PresetConversation_studentInsightTemplateIdToAnalysisTemplate", fields: [studentInsightTemplateId], references: [id])
   SubProject                                                                     SubProject        @relation(fields: [subProjectId], references: [id], onDelete: Cascade)
+
+  // MUST KEEP LOOKUP INDEXES: 外键及归属筛选避免扫描整表；仅增加非唯一索引，不改变字段和数据。
+  // 📐 CONTRACT: 已有复合索引的首列不重复添加；新增查询先检查索引覆盖。
+  // 🔗 RELATED: src/lib/prisma.ts（SQLite 连接）；AGENTS.md §3①（备份后 db push）。
+  // ⛔ DO NOT REVERT: SQLite 不自动为外键建索引；不要用删表或 migrate reset 应用这些索引。
+  @@index([subProjectId])
+  @@index([studentInsightTemplateId])
+  @@index([classInsightTemplateId])
 }
 
 model Question {
@@ -405,6 +534,12 @@ model Question {
   order           Int               @default(0)
   QuizActivity    QuizActivity      @relation(fields: [quizActivityId], references: [id], onDelete: Cascade)
   QuestionAttempt QuestionAttempt[]
+
+  // MUST KEEP LOOKUP INDEXES: 外键及归属筛选避免扫描整表；仅增加非唯一索引，不改变字段和数据。
+  // 📐 CONTRACT: 已有复合索引的首列不重复添加；新增查询先检查索引覆盖。
+  // 🔗 RELATED: src/lib/prisma.ts（SQLite 连接）；AGENTS.md §3①（备份后 db push）。
+  // ⛔ DO NOT REVERT: SQLite 不自动为外键建索引；不要用删表或 migrate reset 应用这些索引。
+  @@index([quizActivityId])
 }
 
 model QuestionAttempt {
@@ -420,6 +555,13 @@ model QuestionAttempt {
   answeredAt     DateTime    @default(now())
   Question       Question    @relation(fields: [questionId], references: [id], onDelete: Cascade)
   QuizAttempt    QuizAttempt @relation(fields: [quizAttemptId], references: [id], onDelete: Cascade)
+
+  // MUST KEEP LOOKUP INDEXES: 外键及归属筛选避免扫描整表；仅增加非唯一索引，不改变字段和数据。
+  // 📐 CONTRACT: 已有复合索引的首列不重复添加；新增查询先检查索引覆盖。
+  // 🔗 RELATED: src/lib/prisma.ts（SQLite 连接）；AGENTS.md §3①（备份后 db push）。
+  // ⛔ DO NOT REVERT: SQLite 不自动为外键建索引；不要用删表或 migrate reset 应用这些索引。
+  @@index([quizAttemptId])
+  @@index([questionId])
 }
 
 model QuizActivity {
@@ -438,6 +580,13 @@ model QuizActivity {
   AnalysisTemplate     AnalysisTemplate? @relation(fields: [quizDesignTemplateId], references: [id])
   SubProject           SubProject        @relation(fields: [subProjectId], references: [id], onDelete: Cascade)
   QuizAttempt          QuizAttempt[]
+
+  // MUST KEEP LOOKUP INDEXES: 外键及归属筛选避免扫描整表；仅增加非唯一索引，不改变字段和数据。
+  // 📐 CONTRACT: 已有复合索引的首列不重复添加；新增查询先检查索引覆盖。
+  // 🔗 RELATED: src/lib/prisma.ts（SQLite 连接）；AGENTS.md §3①（备份后 db push）。
+  // ⛔ DO NOT REVERT: SQLite 不自动为外键建索引；不要用删表或 migrate reset 应用这些索引。
+  @@index([subProjectId])
+  @@index([quizDesignTemplateId])
 }
 
 model QuizAttempt {
@@ -454,6 +603,13 @@ model QuizAttempt {
   QuestionAttempt QuestionAttempt[]
   QuizActivity    QuizActivity      @relation(fields: [quizActivityId], references: [id], onDelete: Cascade)
   User            User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // MUST KEEP LOOKUP INDEXES: 外键及归属筛选避免扫描整表；仅增加非唯一索引，不改变字段和数据。
+  // 📐 CONTRACT: 已有复合索引的首列不重复添加；新增查询先检查索引覆盖。
+  // 🔗 RELATED: src/lib/prisma.ts（SQLite 连接）；AGENTS.md §3①（备份后 db push）。
+  // ⛔ DO NOT REVERT: SQLite 不自动为外键建索引；不要用删表或 migrate reset 应用这些索引。
+  @@index([userId])
+  @@index([quizActivityId])
 }
 
 model SubProject {
@@ -477,6 +633,14 @@ model SubProject {
   classInsightTemplate AnalysisTemplate? @relation("SubProject_classInsightTemplateIdToAnalysisTemplate", fields: [classInsightTemplateId], references: [id])
   studentInsightTemplate AnalysisTemplate? @relation("SubProject_studentInsightTemplateIdToAnalysisTemplate", fields: [studentInsightTemplateId], references: [id])
   task                   LearningTask      @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  // MUST KEEP LOOKUP INDEXES: 外键及归属筛选避免扫描整表；仅增加非唯一索引，不改变字段和数据。
+  // 📐 CONTRACT: 已有复合索引的首列不重复添加；新增查询先检查索引覆盖。
+  // 🔗 RELATED: src/lib/prisma.ts（SQLite 连接）；AGENTS.md §3①（备份后 db push）。
+  // ⛔ DO NOT REVERT: SQLite 不自动为外键建索引；不要用删表或 migrate reset 应用这些索引。
+  @@index([taskId])
+  @@index([studentInsightTemplateId])
+  @@index([classInsightTemplateId])
 }
 
 model SystemConfig {
@@ -518,6 +682,12 @@ model TaskAssignment {
   task  LearningTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
 
   @@unique([taskId, classId])
+
+  // MUST KEEP LOOKUP INDEXES: 外键及归属筛选避免扫描整表；仅增加非唯一索引，不改变字段和数据。
+  // 📐 CONTRACT: 已有复合索引的首列不重复添加；新增查询先检查索引覆盖。
+  // 🔗 RELATED: src/lib/prisma.ts（SQLite 连接）；AGENTS.md §3①（备份后 db push）。
+  // ⛔ DO NOT REVERT: SQLite 不自动为外键建索引；不要用删表或 migrate reset 应用这些索引。
+  @@index([classId])
 }
 
 model User {
@@ -551,6 +721,13 @@ model User {
   StudentProject              StudentProject[]
   ProjectLike                 ProjectLike[]
   Class_User_classIdToClass   Class?             @relation("User_classIdToClass", fields: [classId], references: [id], onDelete: Cascade)
+
+  // MUST KEEP LOOKUP INDEXES: 外键及归属筛选避免扫描整表；仅增加非唯一索引，不改变字段和数据。
+  // 📐 CONTRACT: 已有复合索引的首列不重复添加；新增查询先检查索引覆盖。
+  // 🔗 RELATED: src/lib/prisma.ts（SQLite 连接）；AGENTS.md §3①（备份后 db push）。
+  // ⛔ DO NOT REVERT: SQLite 不自动为外键建索引；不要用删表或 migrate reset 应用这些索引。
+  @@index([studentNo])
+  @@index([classId])
 }
 
 // 教师布置的项目提交任务（与对话活动、互动探究并列，挂在学习活动 SubProject 下）
@@ -568,6 +745,12 @@ model ProjectSubmission {
   createdAt      DateTime       @default(now())
   SubProject     SubProject     @relation(fields: [subProjectId], references: [id], onDelete: Cascade)
   StudentProject StudentProject[]
+
+  // MUST KEEP LOOKUP INDEXES: 外键及归属筛选避免扫描整表；仅增加非唯一索引，不改变字段和数据。
+  // 📐 CONTRACT: 已有复合索引的首列不重复添加；新增查询先检查索引覆盖。
+  // 🔗 RELATED: src/lib/prisma.ts（SQLite 连接）；AGENTS.md §3①（备份后 db push）。
+  // ⛔ DO NOT REVERT: SQLite 不自动为外键建索引；不要用删表或 migrate reset 应用这些索引。
+  @@index([subProjectId])
 }
 
 // 某学生对某项目任务的提交（每项提交仅一个文件）
@@ -590,6 +773,12 @@ model StudentProject {
   @@unique([submissionId, studentId])
   @@index([submissionId])
   @@index([studentId])
+
+  // MUST KEEP LOOKUP INDEXES: 外键及归属筛选避免扫描整表；仅增加非唯一索引，不改变字段和数据。
+  // 📐 CONTRACT: 已有复合索引的首列不重复添加；新增查询先检查索引覆盖。
+  // 🔗 RELATED: src/lib/prisma.ts（SQLite 连接）；AGENTS.md §3①（备份后 db push）。
+  // ⛔ DO NOT REVERT: SQLite 不自动为外键建索引；不要用删表或 migrate reset 应用这些索引。
+  @@index([classId])
 }
 
 // 项目提交附件（单文件）
@@ -615,6 +804,12 @@ model ProjectLike {
   User       User         @relation(fields: [studentId], references: [id], onDelete: Cascade)
   @@unique([projectId, studentId])
   @@index([projectId])
+
+  // MUST KEEP LOOKUP INDEXES: 外键及归属筛选避免扫描整表；仅增加非唯一索引，不改变字段和数据。
+  // 📐 CONTRACT: 已有复合索引的首列不重复添加；新增查询先检查索引覆盖。
+  // 🔗 RELATED: src/lib/prisma.ts（SQLite 连接）；AGENTS.md §3①（备份后 db push）。
+  // ⛔ DO NOT REVERT: SQLite 不自动为外键建索引；不要用删表或 migrate reset 应用这些索引。
+  @@index([studentId])
 }
 
 // ===== QuickForm 数据任务 =====
