@@ -69,6 +69,34 @@ interface TaskOption {
   conversationCount?: number;
 }
 
+interface ConversationCounts {
+  total: number;
+  groups: {
+    id: string;
+    title?: string;
+    taskTitle?: string;
+    subProjectTitle?: string;
+    conversationCount: number;
+  }[];
+}
+
+// MUST USE COUNT-ONLY REQUESTS: 三个筛选栏只接收计数与标题，避免下载消息正文并突破旧 1000 条上限。
+// 📐 CONTRACT: Bearer 鉴权、班级/课堂过滤保持一致；普通分页列表继续使用原接口参数。
+// 🔗 RELATED: src/app/api/conversations/teacher/route.ts 的 countOnly/groupBy 契约。
+// ⛔ DO NOT REVERT: 不要把 pageSize 调大来统计；新增筛选维度应增加服务端聚合。
+async function fetchConversationCounts(
+  filters: Record<string, string>,
+  groupBy: "class" | "task" | "presetConversation",
+  token: string | null,
+): Promise<ConversationCounts> {
+  const params = new URLSearchParams({ ...filters, countOnly: "1", groupBy });
+  const res = await fetch(`/api/conversations/teacher?${params}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error("获取对话数量失败");
+  return res.json();
+}
+
 export default function TeacherConversationsPage() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -116,26 +144,13 @@ export default function TeacherConversationsPage() {
       });
       if (res.ok) {
         const data = await res.json();
-        // 获取该教师所有对话来统计各班级的对话数量
-        const allRes = await fetch("/api/conversations/teacher?pageSize=1000", {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        let allTotal = 0;
-        let classCounts: Record<string, number> = {};
-        if (allRes.ok) {
-          const allData = await allRes.json();
-          allTotal = allData.total || 0;
-          const allConvs = allData.conversations || [];
-          classCounts = allConvs.reduce((acc: Record<string, number>, conv: Conversation) => {
-            acc[conv.class.id] = (acc[conv.class.id] || 0) + 1;
-            return acc;
-          }, {} as Record<string, number>);
-        }
+        const counts = await fetchConversationCounts({}, "class", token);
+        const classCounts = new Map(counts.groups.map((g) => [g.id, g.conversationCount]));
         setClasses([
-          { id: "all", name: "全部班级", conversationCount: allTotal },
+          { id: "all", name: "全部班级", conversationCount: counts.total },
           ...data.map((c: { id: string; name: string }) => ({
             ...c,
-            conversationCount: classCounts[c.id] || 0,
+            conversationCount: classCounts.get(c.id) ?? 0,
           })),
         ]);
       }
@@ -162,27 +177,14 @@ export default function TeacherConversationsPage() {
       const classTasks = allTasks.filter((t: { assignments: { classId: string }[] }) =>
         t.assignments.some((a: { classId: string }) => a.classId === selectedClassId)
       );
-      // 获取该班级的所有对话来统计各任务的对话数
-      const countRes = await fetch(`/api/conversations/teacher?classId=${selectedClassId}&pageSize=1000`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      let taskCounts: Record<string, number> = {};
-      let totalCount = 0;
-      if (countRes.ok) {
-        const countData = await countRes.json();
-        const allConvs = countData.conversations || [];
-        totalCount = countData.total || 0;
-        for (const conv of allConvs) {
-          const taskId = conv.presetConversation?.subProject?.task?.id;
-          if (taskId) taskCounts[taskId] = (taskCounts[taskId] || 0) + 1;
-        }
-      }
+      const counts = await fetchConversationCounts({ classId: selectedClassId }, "task", token);
+      const taskCounts = new Map(counts.groups.map((g) => [g.id, g.conversationCount]));
       setTasks([
-        { id: "all", title: "全部课堂", conversationCount: totalCount },
+        { id: "all", title: "全部课堂", conversationCount: counts.total },
         ...classTasks.map((t: { id: string; title: string }) => ({
           id: t.id,
           title: t.title,
-          conversationCount: taskCounts[t.id] || 0,
+          conversationCount: taskCounts.get(t.id) ?? 0,
         })),
       ]);
     } catch {
@@ -198,45 +200,19 @@ export default function TeacherConversationsPage() {
     }
     try {
       const token = localStorage.getItem("token");
-      // 获取该班级的所有对话，不限页码
-      const params = new URLSearchParams({ classId: selectedClassId, pageSize: "1000" });
-      if (selectedTaskId !== "all") params.set("taskId", selectedTaskId);
-      const res = await fetch(`/api/conversations/teacher?${params}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        const conversations = data.conversations || [];
-        // 按对话活动统计
-        const pcCounts: Record<string, { id: string; title: string; taskTitle: string; subProjectTitle: string; conversationCount: number }> = {};
-        let totalInClass = 0;
-        for (const conv of conversations) {
-          totalInClass++;
-          if (conv.presetConversation) {
-            const pc = conv.presetConversation;
-            if (!pcCounts[pc.id]) {
-              pcCounts[pc.id] = {
-                id: pc.id,
-                title: pc.title,
-                taskTitle: pc.subProject?.task?.title || "",
-                subProjectTitle: pc.subProject?.title || "",
-                conversationCount: 0,
-              };
-            }
-            pcCounts[pc.id].conversationCount++;
-          }
-        }
-        setPresetConversations([
-          { id: "all", title: "全部题目", taskTitle: "", subProjectTitle: "", conversationCount: totalInClass },
-          ...Object.values(pcCounts).map(p => ({
-            id: p.id,
-            title: p.title,
-            taskTitle: p.taskTitle,
-            subProjectTitle: p.subProjectTitle,
-            conversationCount: p.conversationCount,
-          })),
-        ]);
-      }
+      const filters: Record<string, string> = { classId: selectedClassId };
+      if (selectedTaskId !== "all") filters.taskId = selectedTaskId;
+      const counts = await fetchConversationCounts(filters, "presetConversation", token);
+      setPresetConversations([
+        { id: "all", title: "全部题目", taskTitle: "", subProjectTitle: "", conversationCount: counts.total },
+        ...counts.groups.map((g) => ({
+          id: g.id,
+          title: g.title ?? "",
+          taskTitle: g.taskTitle ?? "",
+          subProjectTitle: g.subProjectTitle ?? "",
+          conversationCount: g.conversationCount,
+        })),
+      ]);
     } catch {
       // ignore
     }

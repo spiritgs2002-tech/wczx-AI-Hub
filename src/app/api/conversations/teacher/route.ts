@@ -1,6 +1,50 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { verifyToken } from "@/lib/auth";
+import type { Prisma } from "@prisma/client";
+
+// MUST COUNT WITHOUT LOADING MESSAGES: 筛选栏只需要数量与题目标题，不能拉取所有对话正文来计数。
+// 📐 CONTRACT: countOnly=1 默认仅返回 { total }；groupBy 可选 class/task/presetConversation，增加 groups。
+// 🔗 RELATED: src/app/teacher/conversations/page.tsx 的三个筛选栏；prisma/schema.prisma 的 Conversation 索引。
+// ⛔ DO NOT REVERT: 旧 pageSize=1000 会加载消息且截断数量；统计必须覆盖所有匹配行并限制在当前教师名下。
+async function conversationCounts(where: Prisma.ConversationWhereInput, total: number, groupBy: string | null) {
+  if (groupBy === "class") {
+    const groups = await prisma.conversation.groupBy({
+      by: ["classId"], where, _count: { _all: true },
+    });
+    return { total, groups: groups.map((g) => ({ id: g.classId, conversationCount: g._count._all })) };
+  }
+  if (groupBy !== "task" && groupBy !== "presetConversation") return { total };
+
+  const counts = await prisma.conversation.groupBy({
+    by: ["presetConversationId"], where, _count: { _all: true },
+  });
+  const ids = counts.flatMap((g) => g.presetConversationId ? [g.presetConversationId] : []);
+  const presets = await prisma.presetConversation.findMany({
+    where: { id: { in: ids } },
+    select: {
+      id: true, title: true,
+      SubProject: { select: { title: true, task: { select: { id: true, title: true } } } },
+    },
+  });
+  const presetsById = new Map(presets.map((p) => [p.id, p]));
+  const groups = new Map<string, {
+    id: string; title: string; taskTitle: string; subProjectTitle: string; conversationCount: number;
+  }>();
+  for (const count of counts) {
+    const preset = count.presetConversationId ? presetsById.get(count.presetConversationId) : undefined;
+    if (!preset) continue;
+    const task = preset.SubProject.task;
+    const id = groupBy === "task" ? task.id : preset.id;
+    const group = groups.get(id) ?? {
+      id, title: groupBy === "task" ? task.title : preset.title,
+      taskTitle: task.title, subProjectTitle: preset.SubProject.title, conversationCount: 0,
+    };
+    group.conversationCount += count._count._all;
+    groups.set(id, group);
+  }
+  return { total, groups: [...groups.values()] };
+}
 
 /** 把多模态消息的 JSON content 解析成可读文本 + 音频播放地址
  * （2026-10-15：语音转写文字存于 text part，音频保留返回 audioUrl 供教师端播放） */
@@ -53,11 +97,16 @@ export async function GET(req: NextRequest) {
     const userId = searchParams.get("userId");
     const taskId = searchParams.get("taskId");
     const presetConversationId = searchParams.get("presetConversationId");
+    const countOnly = searchParams.get("countOnly") === "1";
+    const groupBy = searchParams.get("groupBy");
     const page = parseInt(searchParams.get("page") || "1", 10);
     const pageSize = parseInt(searchParams.get("pageSize") || "5", 10);
 
-    // 构建查询条件：只查询该教师班级下的对话
-    const where: Record<string, unknown> = {};
+    // MUST SCOPE EVERY QUERY TO THE TEACHER: 显式传 classId 也必须验证班级归属，避免越权读取记录或计数。
+    // 📐 CONTRACT: 合法教师的筛选、分页与普通列表形状不变；无归属的班级只得到空结果。
+    // 🔗 RELATED: conversationCounts 与本 GET 的全部 count/groupBy/findMany；前端三个筛选栏。
+    // ⛔ DO NOT REVERT: 不能只在未传 classId 时检查归属，调用者可以自行构造参数。
+    const where: Prisma.ConversationWhereInput = { Class: { teacherId: String(payload.userId) } };
     if (classId) {
       where.classId = classId;
     } else {
@@ -83,7 +132,9 @@ export async function GET(req: NextRequest) {
         where.userId = { in: students.map((s) => s.id) };
       } else {
         // 没找到匹配学生，返回空结果
-        return NextResponse.json({ conversations: [], total: 0 });
+        return NextResponse.json(countOnly
+          ? { total: 0, ...(["class", "task", "presetConversation"].includes(groupBy ?? "") ? { groups: [] } : {}) }
+          : { conversations: [], total: 0 });
       }
     }
 
@@ -110,6 +161,7 @@ export async function GET(req: NextRequest) {
 
     // 查询总数
     const total = await prisma.conversation.count({ where });
+    if (countOnly) return NextResponse.json(await conversationCounts(where, total, groupBy));
 
     // 统计全量消息总数（当前筛选条件下的所有对话消息）
     const totalMessages = await prisma.message.count({
