@@ -303,6 +303,50 @@ function buildNoThinkingFetch(baseFetch: typeof fetch): typeof fetch {
   };
 }
 
+/**
+ * 全媒体线路：给 input_audio.data 补 "data:;base64," 前缀。
+ * 为什么：@ai-sdk/openai 按 OpenAI 规范发送纯 base64；通义千问兼容接口要求内嵌音频写成
+ *   "data:;base64,<base64>"，否则把整段数据当 URL 解析，报 "The provided URL does not appear to be valid"
+ *   —— 2026-11-12 平板实测：语音转写与对话全部失败（即使只有一条音频）。
+ * 现状：只改 messages[].content[] 里 type=input_audio 且 data 不以 data:/http 开头的项；OpenAI 官方域名不改。
+ * ⛔ DO NOT REMOVE：去掉后千问 omni 所有语音请求都会失败。
+ * 🔗 RELATED：src/lib/asr.ts（转写）、src/app/api/chat/route.ts（语音对话）都经 createDashScopeClient("omni")。
+ */
+function buildAudioDataUriFetch(baseFetch: typeof fetch, baseURL: string): typeof fetch {
+  if (/(^|\.)openai\.com$/i.test(safeHost(baseURL))) return baseFetch;
+  return async (input, init) => {
+    let nextInit = init;
+    if (nextInit?.body && typeof nextInit.body === "string" && nextInit.body.includes('"input_audio"')) {
+      try {
+        const body = JSON.parse(nextInit.body);
+        let changed = false;
+        for (const m of body?.messages || []) {
+          if (!Array.isArray(m?.content)) continue;
+          for (const part of m.content) {
+            const audio = part?.type === "input_audio" ? part.input_audio : null;
+            if (audio && typeof audio.data === "string" && !/^(data:|https?:)/i.test(audio.data)) {
+              audio.data = `data:;base64,${audio.data}`;
+              changed = true;
+            }
+          }
+        }
+        if (changed) nextInit = { ...nextInit, body: JSON.stringify(body) };
+      } catch {
+        // 非 JSON 请求体忽略
+      }
+    }
+    return baseFetch(input, nextInit);
+  };
+}
+
+function safeHost(url: string): string {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return "";
+  }
+}
+
 export async function createDashScopeClient(
   route: AIConfigRoute = "text",
   hooks?: { onFailover?: () => void },
@@ -325,9 +369,10 @@ export async function createDashScopeClient(
     console.log(
       `[ai] 线路「${config._route}」主=${config._primary.model}@${config._primary.baseURL}（noFailover：仅主模型，不限制时间）`
     );
-    const fetchImpl: typeof fetch | undefined = config.reasoningEnabled
+    let fetchImpl: typeof fetch | undefined = config.reasoningEnabled
       ? undefined // 原生 fetch：无超时、无 failover、不切备用
       : buildNoThinkingFetch(fetch); // 仅注入 thinking disabled；baseFetch 用全局 fetch（URL/鉴权由 provider 构造）
+    if (route === "omni") fetchImpl = buildAudioDataUriFetch(fetchImpl ?? fetch, config.baseURL);
     const client = createOpenAI({
       baseURL: config.baseURL,
       apiKey: config.apiKey,
@@ -351,9 +396,11 @@ export async function createDashScopeClient(
     config._backup,
     hooks?.onFailover
   );
-  const fetchImpl: typeof fetch = config.reasoningEnabled
+  let fetchImpl: typeof fetch = config.reasoningEnabled
     ? failoverFetch
     : buildNoThinkingFetch(failoverFetch);
+  // 全媒体线路补音频 data URI 前缀（见 buildAudioDataUriFetch）；先改 body，再交给 failover 切端点
+  if (route === "omni") fetchImpl = buildAudioDataUriFetch(fetchImpl, config.baseURL);
   const client = createOpenAI({
     baseURL: config.baseURL,
     apiKey: config.apiKey,
