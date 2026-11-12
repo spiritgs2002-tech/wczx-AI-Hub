@@ -26,6 +26,19 @@ import ExplorationPanel from "./ExplorationPanel";
 import ProjectSubmitPanel from "./ProjectSubmitPanel";
 import { pcmToWavDataUrl, mixToMono } from "@/lib/audio/wav";
 
+// DO NOT REVERT: 老版 iOS webkitAudioContext 的 decodeAudioData 只支持回调；两条音频入口共用此包装。
+// 📐 CONTRACT: 同时接住新版返回 Promise 的拒绝，失败也必须在 finally 关闭 context，不能留下音频设备占用。
+// 🔗 RELATED: 本文件 transcodeAudioToWav / toggleRecording；src/lib/audio/wav.ts 只负责纯 PCM 转码。
+const decodeAudio = (ctx: AudioContext, data: ArrayBuffer): Promise<AudioBuffer> =>
+  new Promise((resolve, reject) => {
+    const pending = ctx.decodeAudioData(data, resolve, reject);
+    void pending?.catch(reject);
+  });
+const closeAudioContext = (ctx: AudioContext | null) => {
+  if (!ctx || ctx.state === "closed") return;
+  try { void ctx.close().catch(() => {}); } catch { /* 旧 WebKit 或重复关闭不得打断其它资源释放 */ }
+};
+
 interface MessageImage {
   url: string;
 }
@@ -371,12 +384,12 @@ export default function StudentChatPage() {
   // 话筒页内录音（2026-10-15 需求：点击直接调用麦克风，再点停止，录完作为语音附件）
   const [isRecording, setIsRecording] = useState(false);
   const [recordingSec, setRecordingSec] = useState(0);
-  // 录音同时走原始 PCM 与 MediaRecorder 两条通道，停止时选有声音的一路 —— 原因见 toggleRecording 上方注释
-  const recordingStreamRef = useRef<MediaStream | null>(null);
-  const recordingCtxRef = useRef<AudioContext | null>(null);
-  const recordingPcmRef = useRef<Float32Array[]>([]);
-  const stopRecordingRef = useRef<(() => void) | null>(null);
-  const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // MUST KEEP SESSION OWNERSHIP: ref 在请求权限之前同步占位，直到转码结束才释放；React state 不能充当互斥锁。
+  // 📐 CONTRACT: 每次录音独占 stream/context/PCM/timers；discard=true 取消授权等待、录音或转码且绝不回填附件。
+  // 🔗 RELATED: toggleRecording、cancelRecording、下方生命周期 effect 与四个 switchTo* 入口。
+  // ⛔ DO NOT REVERT: 共享 PCM ref 会让旧录音的异步停止读取下一段录音，并关掉它的资源。
+  const stopRecordingRef = useRef<((discard?: boolean) => void) | null>(null);
+  const audioSelectionRef = useRef(0);
   const activePresetRef = useRef<string | null>(null);
   const isSwitchingRef = useRef(false); // 防止 switch 函数重入
   const latestDetailConvRef = useRef<string | null>(null); // 最新一次详情请求的对话 ID（竞态保护：快速切换后丢弃旧响应）
@@ -396,19 +409,38 @@ export default function StudentChatPage() {
     fetchData();
   }, []);
 
-  // 组件卸载时兜底停止录音并释放麦克风
+  // MUST CANCEL BEFORE LEAVING: 切换活动/对话、离页及卸载都丢弃本会话，包含尚未返回的 getUserMedia。
+  // 📐 CONTRACT: cleanup 不 setState；页面恢复后可重新录音，迟到的流立即 stop，不在新活动上挂附件。
+  // 🔗 RELATED: cancelRecording 在 switchTo* 中同步执行，pagehide 覆盖 Safari 的页面缓存；transcodeAudioToWav 的附件版本锁。
+  // ⛔ DO NOT REVERT: 仅停轨道不够，必须断开节点、移除回调、清掉所有计时器并关闭 context。
   useEffect(() => {
-    return () => {
-      if (recordingTimerRef.current) {
-        clearInterval(recordingTimerRef.current);
-        recordingTimerRef.current = null;
-      }
-      recordingStreamRef.current?.getTracks().forEach((t) => t.stop());
-      recordingStreamRef.current = null;
-      void recordingCtxRef.current?.close();
-      recordingCtxRef.current = null;
+    const discard = () => {
+      audioSelectionRef.current++;
+      stopRecordingRef.current?.(true);
     };
-  }, []);
+    const onPageHide = () => {
+      discard();
+      setIsRecording(false);
+      setRecordingSec(0);
+    };
+    setIsRecording(false);
+    setRecordingSec(0);
+    window.addEventListener("pagehide", onPageHide);
+    return () => {
+      window.removeEventListener("pagehide", onPageHide);
+      discard();
+    };
+  }, [activePresetId, activeConvId, activeType]);
+
+  // MUST CANCEL SYNCHRONOUSLY: 侧栏事件中先取消，再切 React state，封住 effect cleanup 前的异步完成窗口。
+  // 🔗 RELATED: 上方卸载兜底、四个 switchTo*；⛔ DO NOT REVERT 成仅比较 presetId（同活动也可切换对话）。
+  const cancelRecording = () => {
+    audioSelectionRef.current++;
+    stopRecordingRef.current?.(true);
+    setIsRecording(false);
+    setRecordingSec(0);
+    setPendingAudio(null);
+  };
 
   useEffect(() => {
     // 新增消息（条数变化：发送、回复首包、加载历史）→ 无条件滚到底；
@@ -506,6 +538,7 @@ export default function StudentChatPage() {
   const switchToChat = (presetId: string, convId?: string) => {
     // 防止快速双击导致的问题
     if (isSwitchingRef.current) return;
+    cancelRecording();
 
     // 取消正在进行的 AI 请求
     if (abortControllerRef.current) {
@@ -587,6 +620,7 @@ export default function StudentChatPage() {
   };
 
   const switchToQuiz = (quizId: string) => {
+    cancelRecording();
     // 每次点击作业都重置状态，确保重新加载
     setQuizSubmitted(false);
     setActiveType("quiz");
@@ -604,6 +638,7 @@ export default function StudentChatPage() {
   };
 
   const switchToExploration = (expId: string) => {
+    cancelRecording();
     setActiveType("exploration");
     setActiveExplorationId(expId);
     setActivePresetId(null);
@@ -620,6 +655,7 @@ export default function StudentChatPage() {
   };
 
   const switchToProject = (projectId: string) => {
+    cancelRecording();
     setActiveType("project");
     setActiveProjectId(projectId);
     setActivePresetId(null);
@@ -673,21 +709,23 @@ export default function StudentChatPage() {
 
   // ⛔ DO NOT REVERT: 音频统一转码为 WAV。AI SDK（@ai-sdk/openai）的 file part 音频
   //   只接受 audio/wav、audio/mp3、audio/mpeg，m4a/ogg/webm 会抛 UnsupportedFunctionalityError；
-  //   浏览器 Web Audio 可解码任意格式，故上传前统一转 16kHz 单声道 WAV，保证全格式可用。
+  //   仅能解码当前浏览器支持的格式；上传前统一转 16kHz 单声道 WAV，失败交给附件入口提示。
   //   后端 /api/chat 收到 data:audio/wav;base64, 后转 file part 直通（见 route.ts mediaTypeToExt）。
+  // 🔗 RELATED: decodeAudio（旧 iOS 回调兼容）、handleAudioSelect 的过期结果保护、src/lib/audio/wav.ts。
   const transcodeAudioToWav = async (file: File): Promise<string> => {
     const arrayBuffer = await file.arrayBuffer();
     const AudioCtx =
       window.AudioContext ||
-      (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioCtx) throw new Error("当前浏览器不支持音频解码");
     const ctx = new AudioCtx();
     try {
-      const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+      const audioBuffer = await decodeAudio(ctx, arrayBuffer);
       const channels = Array.from({ length: audioBuffer.numberOfChannels }, (_, i) => audioBuffer.getChannelData(i));
       // ⛔ 重采样必须走 @/lib/audio/wav（带抗混叠），不要改回 OfflineAudioContext —— 原因见该文件头注释
       return await pcmToWavDataUrl(mixToMono(channels), audioBuffer.sampleRate);
     } finally {
-      void ctx.close();
+      closeAudioContext(ctx);
     }
   };
 
@@ -703,11 +741,14 @@ export default function StudentChatPage() {
       MessagePlugin.error("音频不能超过 20MB");
       return;
     }
+    // MUST IGNORE STALE AUDIO: 切活动或再次选文件后，旧解码不得覆盖当前附件；与录音会话的取消规则一致。
+    // 🔗 RELATED: cancelRecording / 生命周期 effect；⛔ DO NOT REVERT 成无条件 setPendingAudio。
+    const selection = ++audioSelectionRef.current;
     try {
       const url = await transcodeAudioToWav(file);
-      setPendingAudio(url);
+      if (selection === audioSelectionRef.current) setPendingAudio(url);
     } catch {
-      MessagePlugin.error("音频解析失败，请换用常见格式（m4a/mp3/wav）");
+      if (selection === audioSelectionRef.current) MessagePlugin.error("音频解析失败，请换用常见格式（m4a/mp3/wav）");
     }
   };
 
@@ -728,12 +769,6 @@ export default function StudentChatPage() {
   // ⛔ 话筒页内录音（2026-10-15 需求：点击直接调用麦克风开始录音，再点停止，录完作为语音附件）
   // 录音直接采集 PCM 后转 16kHz 单声道 WAV（pcmToWavDataUrl），与"选择音频文件"共用同一条发送链路
   const MAX_RECORD_SEC = 60;
-  const clearRecordingTimer = () => {
-    if (recordingTimerRef.current) {
-      clearInterval(recordingTimerRef.current);
-      recordingTimerRef.current = null;
-    }
-  };
   const formatRecordSec = (s: number) =>
     `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 
@@ -756,214 +791,225 @@ export default function StudentChatPage() {
   };
 
   const toggleRecording = async () => {
-    // 录音中：点击停止
-    if (isRecording) {
-      stopRecordingRef.current?.();
+    // MUST USE THE REF LOCK: 连点、60 秒定时器与手动停止共用同一 stop；授权中/转码中再点不会另开会话。
+    // 🔗 RELATED: stopRecordingRef / cancelRecording；⛔ DO NOT REVERT 成 isRecording（state 尚未提交时可重入）。
+    if (stopRecordingRef.current) {
+      stopRecordingRef.current();
       return;
     }
     if (!activePresetId) return;
-    // ⚠️ GOTCHA：浏览器只在「安全来源」（HTTPS 或 localhost）开放麦克风。学生用 http://教师IP:3000 访问时
-    //   navigator.mediaDevices 直接是 undefined，系统/浏览器里给了麦克风权限也没用。
-    //   旧版这里统一提示"请检查浏览器权限设置"，老师按提示查权限查不出问题（2026-11-12 安卓平板实测）。
-    // 现状：先判断安全来源，再按 getUserMedia 的错误类型分别提示真实原因。
-    // ⛔ DO NOT REVERT 成单一的"检查权限"提示。
-    // 🔗 RELATED：src/lib/https-entry.ts（班级二维码走 HTTPS 入口）；readme.md 录音常见问题。
+    // MUST KEEP HTTPS DIAGNOSTICS: HTTP 局域网入口没有 mediaDevices，与系统麦克风授权无关。
+    // 🔗 RELATED: src/lib/https-entry.ts 的班级二维码；⛔ DO NOT REVERT 成单一“检查权限”提示。
     if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
       MessagePlugin.error(
         `当前通过 ${window.location.origin} 访问，浏览器禁止非 HTTPS 网页使用麦克风（与权限设置无关）。` +
-          `请扫描老师「班级管理 → 分享」里的二维码重新进入（https 地址），首次提示连接不安全时点「高级 → 继续访问」即可录音`,
+          `请扫描老师「班级管理 → 分享」里的二维码重新进入（https 地址）`,
         15000,
       );
       return;
     }
-    const AudioCtx =
-      window.AudioContext ||
+    const AudioCtx = window.AudioContext ||
       (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
     const hasRecorder = typeof MediaRecorder !== "undefined";
-    if (!AudioCtx && !hasRecorder) {
-      MessagePlugin.error("当前浏览器不支持录音，请用 Chrome / Edge");
+    if (!AudioCtx) {
+      MessagePlugin.error("当前浏览器不支持音频处理，请换用支持 Web Audio 的浏览器");
       return;
     }
-    // 在 await 之前创建并唤醒 AudioContext，保住点击手势（安卓上手势过期后 resume 可能无效）
-    let ctx: AudioContext | null = null;
-    try {
-      ctx = AudioCtx ? new AudioCtx() : null;
-      void ctx?.resume();
-    } catch {
-      ctx = null;
-    }
 
-    let stream: MediaStream;
+    // MUST OWN ALL RESOURCES PER SESSION: 取消后 getUserMedia 仍可能返回，必须当场停掉迟到的轨道。
+    // 📐 CONTRACT: dispose 幂等；stop 后立即释放麦克风，但保留 context 直到本次解码结束；取消则立即全部关闭。
+    // 🔗 RELATED: 生命周期 effect、stopRecordingRef、decodeAudio；⛔ DO NOT REVERT 成跨会话共享 PCM/context refs。
+    let ctx: AudioContext | null = null;
+    let stream: MediaStream | null = null;
+    let recorder: MediaRecorder | null = null;
+    const pcmChunks: Float32Array[] = [];
+    const recChunks: Blob[] = [];
+    const cleanups: (() => void)[] = [];
+    let interval: ReturnType<typeof setInterval> | undefined;
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    let recorderWait: ReturnType<typeof setTimeout> | undefined;
+    let resolveRecorder: () => void = () => {};
+    let recDone: Promise<void> = Promise.resolve();
+    let cancelled = false;
+    let stopped = false;
+    let capturing = false;
+    let disposed = false;
+    let startedAt = 0;
+    let pcmRate = 0;
+    const isCurrent = () => !cancelled && stopRecordingRef.current === stop;
+    const clearTimers = () => {
+      clearInterval(interval);
+      clearTimeout(deadline);
+      interval = deadline = undefined;
+    };
+    const releaseCapture = () => {
+      clearTimers();
+      cleanups.splice(0).forEach((fn) => { try { fn(); } catch { /* 继续释放其余节点 */ } });
+      try { if (recorder && recorder.state !== "inactive") recorder.stop(); } catch { /* 轨道已结束 */ }
+      stream?.getTracks().forEach((track) => track.stop());
+    };
+    const dispose = () => {
+      if (disposed) return;
+      disposed = true;
+      releaseCapture();
+      resolveRecorder();
+      clearTimeout(recorderWait);
+      if (recorder) recorder.ondataavailable = recorder.onstop = recorder.onerror = null;
+      pcmChunks.length = recChunks.length = 0;
+      closeAudioContext(ctx);
+      if (stopRecordingRef.current === stop) stopRecordingRef.current = null;
+    };
+    const stop = (discard = false) => {
+      if (discard) {
+        cancelled = true;
+        dispose();
+        return;
+      }
+      if (!capturing || stopped || cancelled) return;
+      stopped = true; // 同步锁，必须在任何 await 和 setState 之前置位
+      capturing = false;
+      const duration = Date.now() - startedAt;
+      const track = stream?.getAudioTracks()[0];
+      const trackDiag = track
+        ? `麦克风${track.readyState === "live" ? "在线" : track.readyState}${track.muted ? "·被系统静音" : ""}${track.enabled ? "" : "·已禁用"}`
+        : "无麦克风轨道";
+      const ua = navigator.userAgent;
+      const browser = (/; wv\)/.test(ua) ? "内嵌WebView " : "") +
+        (ua.match(/(EdgiOS|EdgA?|FxiOS|Firefox|HuaweiBrowser|HeyTapBrowser|VivoBrowser|MiuiBrowser|SamsungBrowser|UCBrowser|QQBrowser|MicroMessenger|Chrome|Version)\/[\d.]+/)?.[0] || "未知浏览器");
+      const diag = [trackDiag, browser];
+      releaseCapture();
+      setIsRecording(false);
+      setRecordingSec(0);
+      void (async () => {
+        try {
+          if (duration < 600) {
+            if (isCurrent()) MessagePlugin.warning("录音太短，请说完一句话再点停止");
+            return;
+          }
+          // MUST KEEP THE PCM CLOCK: Firefox 的麦克风 track 采样率可能与 context 不同；PCM 以 inputBuffer.sampleRate 为准。
+          // 📐 CONTRACT: 浏览器若不支持跨采样率建图，则捕获异常走压缩通道，不能给 PCM 贴 track 的采样率造成变速。
+          // 🔗 RELATED: 下方 onaudioprocess / src/lib/audio/wav.ts resample；⛔ DO NOT REVERT 成猜测 48000Hz。
+          const total = pcmChunks.reduce((n, chunk) => n + chunk.length, 0);
+          if (total > 0 && pcmRate > 0) {
+            const pcm = new Float32Array(total);
+            let offset = 0;
+            for (const chunk of pcmChunks) { pcm.set(chunk, offset); offset += chunk.length; }
+            const peak = peakOf(pcm);
+            diag.push(`PCM峰值${peak.toFixed(4)} @${pcmRate}Hz`);
+            if (peak >= SILENCE_PEAK) {
+              const url = await pcmToWavDataUrl(pcm, pcmRate);
+              if (isCurrent()) setPendingAudio(url);
+              return;
+            }
+          } else diag.push("PCM无数据");
+
+          // MUST BOUND RECORDER WAIT: Safari/失效设备可能不触发 stop；3 秒上限也归本会话，完成/取消均清除。
+          // 🔗 RELATED: MediaRecorder onstop/onerror 与 dispose；⛔ DO NOT REVERT 成不清理 Promise.race 的 timeout。
+          if (!isCurrent()) return;
+          await new Promise<void>((resolve) => {
+            recorderWait = setTimeout(resolve, 3000);
+            void recDone.then(resolve);
+          });
+          clearTimeout(recorderWait);
+          if (!isCurrent()) return;
+          if (recChunks.length > 0 && ctx) {
+            // MUST PRESERVE MIME: iOS Safari 可产出 MP4/AAC，Firefox 可产出 Ogg/Opus，不能给所有数据硬贴 WebM。
+            // 🔗 RELATED: 下方 isTypeSupported 格式选择、decodeAudio；⛔ DO NOT REVERT 成固定 audio/webm。
+            const blob = new Blob(recChunks, { type: recorder?.mimeType || recChunks[0].type });
+            diag.push(`${blob.type || "未知格式"} ${Math.round(blob.size / 1024)}KB`);
+            try {
+              const decoded = await decodeAudio(ctx, await blob.arrayBuffer());
+              if (!isCurrent()) return;
+              const mono = mixToMono(Array.from({ length: decoded.numberOfChannels }, (_, i) => decoded.getChannelData(i)));
+              const peak = peakOf(mono);
+              diag.push(`解码峰值${peak.toFixed(4)}`);
+              if (peak >= SILENCE_PEAK) {
+                const url = await pcmToWavDataUrl(mono, decoded.sampleRate);
+                if (isCurrent()) setPendingAudio(url);
+                return;
+              }
+            } catch (e) { diag.push(`解码失败${(e as Error)?.name || ""}`); }
+          } else diag.push(!hasRecorder ? "不支持压缩录音" : recorder ? "压缩录音无数据" : "压缩录音启动失败");
+          if (isCurrent()) MessagePlugin.error(
+            `没有录到声音，未发送。请检查：① 平板下拉快捷设置里的「麦克风」开关是否打开（关闭时只能录到静音）；` +
+              `② 麦克风没被其他应用占用；③ 安卓平板可换用 Firefox 重试。（诊断：${diag.join("，")}）`,
+            12000,
+          );
+        } catch (e) {
+          if (isCurrent()) MessagePlugin.error(`录音处理失败（${(e as Error)?.name || "未知错误"}；${diag.join("，")}），请重试`, 10000);
+        } finally { dispose(); }
+      })();
+    };
+    stopRecordingRef.current = stop;
+    audioSelectionRef.current++; // 旧附件解码不能覆盖这次录音
     try {
+      // MUST RESUME IN THE GESTURE: iOS/安卓要在第一个 await 前创建并 resume，拒绝需捕获；不得等待可能悬挂的 resume。
+      // 🔗 RELATED: 原始 PCM 节点、压缩回退；⛔ DO NOT REVERT 成 getUserMedia 返回后才创建 AudioContext。
+      ctx = new AudioCtx();
+      void ctx.resume().catch(() => {});
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (!isCurrent()) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
+      let pcmReady = false;
+      try {
+        const source = ctx.createMediaStreamSource(stream);
+        cleanups.push(() => source.disconnect());
+        const proc = ctx.createScriptProcessor(4096, 1, 1);
+        cleanups.push(() => { proc.onaudioprocess = null; proc.disconnect(); });
+        const mute = ctx.createGain();
+        cleanups.push(() => mute.disconnect());
+        mute.gain.value = 0;
+        proc.onaudioprocess = (e) => {
+          if (!capturing || !isCurrent()) return;
+          pcmRate = e.inputBuffer.sampleRate;
+          pcmChunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+        };
+        source.connect(proc);
+        proc.connect(mute);
+        mute.connect(ctx.destination);
+        pcmReady = true;
+      } catch { /* Firefox 跨采样率建图或 PCM 节点失败，继续启动独立 MediaRecorder 通道 */ }
+      if (hasRecorder) {
+        try {
+          const mimeType = typeof MediaRecorder.isTypeSupported === "function"
+            ? ["audio/webm;codecs=opus", "audio/ogg;codecs=opus", "audio/mp4"].find((type) => MediaRecorder.isTypeSupported(type))
+            : undefined;
+          recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+          recorder.ondataavailable = (e) => { if (!cancelled && e.data?.size > 0) recChunks.push(e.data); };
+          recDone = new Promise<void>((resolve) => { resolveRecorder = resolve; });
+          recorder.onstop = recorder.onerror = () => resolveRecorder();
+          recorder.start(1000);
+        } catch {
+          if (recorder) recorder.ondataavailable = recorder.onstop = recorder.onerror = null;
+          recorder = null;
+          resolveRecorder();
+        }
+      }
+      if (!pcmReady && !recorder) throw new Error("没有可用的录音通道");
+      startedAt = Date.now();
+      capturing = true;
+      setIsRecording(true);
+      setRecordingSec(0);
+      // MUST STOP OUTSIDE STATE UPDATERS: React StrictMode 可重复调用 updater；秒数只负责显示，独立 deadline 调用幂等 stop。
+      // 🔗 RELATED: clearTimers / stop；⛔ DO NOT REVERT 成在 setRecordingSec(s => ...) 内执行停止副作用。
+      interval = setInterval(() => setRecordingSec(Math.min(MAX_RECORD_SEC, Math.floor((Date.now() - startedAt) / 1000))), 1000);
+      deadline = setTimeout(() => stop(), MAX_RECORD_SEC * 1000);
     } catch (err) {
-      void ctx?.close();
-      const name = (err as { name?: string })?.name || "";
-      const msg =
-        name === "NotAllowedError" || name === "SecurityError"
+      if (isCurrent()) {
+        const name = (err as Error)?.name || "";
+        const msg = name === "NotAllowedError" || name === "SecurityError"
           ? "麦克风权限被拒绝：请点地址栏左侧图标 → 网站设置 → 麦克风 → 允许，并在系统设置里允许浏览器使用麦克风"
           : name === "NotFoundError" || name === "OverconstrainedError"
             ? "没有检测到麦克风设备，请检查耳机/麦克风是否已连接"
             : name === "NotReadableError" || name === "AbortError"
               ? "麦克风正被其他应用占用，请关闭其他录音/通话应用后重试"
-              : `无法访问麦克风（${name || "未知错误"}），请检查浏览器权限设置`;
-      MessagePlugin.error(msg, 8000);
-      return;
-    }
-
-    // 通道 A：原始 PCM
-    const cleanups: (() => void)[] = [];
-    recordingPcmRef.current = [];
-    if (ctx) {
-      try {
-        if (ctx.state === "suspended") await ctx.resume();
-        const source = ctx.createMediaStreamSource(stream);
-        const proc = ctx.createScriptProcessor(4096, 1, 1);
-        // 处理节点必须连到输出才会持续回调；用 0 增益避免扬声器回放自己的声音
-        const mute = ctx.createGain();
-        mute.gain.value = 0;
-        proc.onaudioprocess = (e) => {
-          recordingPcmRef.current.push(new Float32Array(e.inputBuffer.getChannelData(0)));
-        };
-        source.connect(proc);
-        proc.connect(mute);
-        mute.connect(ctx.destination);
-        cleanups.push(() => {
-          proc.onaudioprocess = null;
-          try {
-            source.disconnect();
-            proc.disconnect();
-            mute.disconnect();
-          } catch {
-            // 已断开
-          }
-        });
-      } catch {
-        // PCM 通道不可用时仅靠 MediaRecorder
+              : `无法启动录音（${name || "未知错误"}），请检查浏览器音频支持与权限设置`;
+        MessagePlugin.error(msg, 8000);
       }
+      dispose();
     }
-
-    // 通道 B：MediaRecorder（压缩格式，停止后再尝试解码）
-    let recorder: MediaRecorder | null = null;
-    const recChunks: Blob[] = [];
-    let recDone: Promise<void> = Promise.resolve();
-    if (hasRecorder) {
-      try {
-        recorder = new MediaRecorder(stream);
-        recorder.ondataavailable = (e) => {
-          if (e.data && e.data.size > 0) recChunks.push(e.data);
-        };
-        const r = recorder;
-        recDone = new Promise<void>((resolve) => {
-          r.onstop = () => resolve();
-          r.onerror = () => resolve();
-        });
-        recorder.start(1000);
-      } catch {
-        recorder = null;
-      }
-    }
-
-    recordingStreamRef.current = stream;
-    recordingCtxRef.current = ctx;
-    const startedAt = Date.now();
-
-    let stopped = false;
-    stopRecordingRef.current = () => {
-      if (stopped) return;
-      stopped = true;
-      stopRecordingRef.current = null;
-      clearRecordingTimer();
-      setIsRecording(false);
-      setRecordingSec(0);
-      cleanups.forEach((fn) => fn());
-      if (recorder && recorder.state !== "inactive") recorder.stop();
-
-      void (async () => {
-        await Promise.race([recDone, new Promise((r) => setTimeout(r, 3000))]);
-        // 麦克风轨道状态必须在 stop() 之前取（stop 后 readyState 恒为 ended）。
-        // 诊断用：muted=是 通常表示系统/浏览器 App 层面没给声音（安卓麦克风隐私开关、App 未获麦克风权限、套壳浏览器）
-        const track = stream.getAudioTracks()[0];
-        const ua = navigator.userAgent;
-        const browser =
-          (/; wv\)/.test(ua) ? "内嵌WebView " : "") +
-          (ua.match(/(EdgA?|HuaweiBrowser|HeyTapBrowser|VivoBrowser|MiuiBrowser|SamsungBrowser|UCBrowser|QQBrowser|MicroMessenger|Chrome)\/[\d]+/)?.[0] || "未知浏览器");
-        const trackDiag = track
-          ? `麦克风${track.readyState === "live" ? "在线" : track.readyState}${track.muted ? "·被系统静音" : ""}${track.enabled ? "" : "·已禁用"}`
-          : "无麦克风轨道";
-        stream.getTracks().forEach((t) => t.stop());
-        recordingStreamRef.current = null;
-        const rate = ctx?.sampleRate || 48000;
-        const diag: string[] = [trackDiag, browser];
-        try {
-          if (Date.now() - startedAt < 600) {
-            MessagePlugin.warning("录音太短，请说完一句话再点停止");
-            return;
-          }
-          // A：PCM 有声音就直接用
-          const chunks = recordingPcmRef.current;
-          recordingPcmRef.current = [];
-          const total = chunks.reduce((n, c) => n + c.length, 0);
-          if (total > 0) {
-            const pcm = new Float32Array(total);
-            let offset = 0;
-            for (const c of chunks) {
-              pcm.set(c, offset);
-              offset += c.length;
-            }
-            const peak = peakOf(pcm);
-            diag.push(`PCM峰值${peak.toFixed(4)}`);
-            if (peak >= SILENCE_PEAK) {
-              setPendingAudio(await pcmToWavDataUrl(pcm, rate));
-              return;
-            }
-          } else {
-            diag.push("PCM无数据");
-          }
-          // B：解码 MediaRecorder 的录音
-          if (recChunks.length > 0 && ctx) {
-            const blob = new Blob(recChunks, { type: recorder?.mimeType || "audio/webm" });
-            diag.push(`${blob.type || "未知格式"} ${Math.round(blob.size / 1024)}KB`);
-            try {
-              const decoded = await ctx.decodeAudioData(await blob.arrayBuffer());
-              const ch = decoded.getChannelData(0);
-              const peak = peakOf(ch);
-              diag.push(`解码峰值${peak.toFixed(4)}`);
-              if (peak >= SILENCE_PEAK) {
-                setPendingAudio(await pcmToWavDataUrl(new Float32Array(ch), decoded.sampleRate));
-                return;
-              }
-            } catch (e) {
-              diag.push(`解码失败${(e as Error)?.name || ""}`);
-            }
-          } else {
-            diag.push(!hasRecorder ? "不支持压缩录音" : recorder ? "压缩录音无数据" : "压缩录音启动失败");
-          }
-          MessagePlugin.error(
-            // ⚠️ GOTCHA：安卓 12+ 下拉快捷设置里的「麦克风」隐私开关关闭时，浏览器不报错、只能录到静音 —— 必须提示这一条
-            `没有录到声音，未发送。请检查：① 平板下拉快捷设置里的「麦克风」开关是否打开（关闭时只能录到静音）；` +
-              `② 麦克风没被其他应用占用；③ 换用 Chrome 浏览器重试。（诊断：${diag.join("，")}）`,
-            12000,
-          );
-        } catch (e) {
-          MessagePlugin.error(`录音处理失败（${(e as Error)?.name || "未知错误"}；${diag.join("，")}），请重试`, 10000);
-        } finally {
-          void ctx?.close();
-          recordingCtxRef.current = null;
-        }
-      })();
-    };
-
-    setIsRecording(true);
-    setRecordingSec(0);
-    recordingTimerRef.current = setInterval(() => {
-      setRecordingSec((s) => {
-        const next = s + 1;
-        // 到时自动停止录音
-        if (next >= MAX_RECORD_SEC) stopRecordingRef.current?.();
-        return next;
-      });
-    }, 1000);
   };
 
   const removePendingAudio = () => {
