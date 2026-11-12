@@ -430,6 +430,8 @@ model LearningTask {
   requirements                                                             String
   knowledgeBase                                                            String?
   knowledgeBaseIds                                                         String?
+  // 绑定的 ima 知识库：JSON [{id,name}]；学生对话时实时检索（ima 无全文接口，只能搜片段），见 src/lib/ima.ts
+  imaKnowledgeBases                                                        String?
   imageGroupIds                                                            String?
   analysisPrompt                                                           String?
   studentInsightTemplateId                                                 String?
@@ -671,6 +673,9 @@ model SystemConfig {
   conversationWarningThreshold Int      @default(20000)
   updatedAt                    DateTime
   studentMotto                 String?
+  // 腾讯 ima 知识库开放接口凭证（2026-11-12）：在 https://ima.qq.com/agent-interface 获取；仅服务端使用，发往 ima.qq.com
+  imaClientId                  String?
+  imaApiKey                    String?
 }
 
 model TaskAssignment {

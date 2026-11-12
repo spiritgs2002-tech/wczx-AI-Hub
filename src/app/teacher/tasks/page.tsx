@@ -103,6 +103,7 @@ interface LearningTask {
   requirements: string;
   knowledgeBase?: string;
   knowledgeBaseIds?: string;
+  imaKnowledgeBases?: string | null; // JSON [{id,name}]：绑定的腾讯 ima 知识库（对话时实时检索）
   imageGroupIds?: string;
   analysisPrompt?: string;
   status: string;
@@ -271,6 +272,11 @@ export default function TeacherTasksPage() {
   const [conversationTemplates, setConversationTemplates] = useState<AnalysisTemplate[]>([]);
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBaseItem[]>([]);
   const [selectedKbIds, setSelectedKbIds] = useState<string[]>([]);
+  // ima 知识库（2026-11-12）：与本地知识库并列可选；ima 无全文接口，学生提问时实时检索片段，不占 50,000 字符额度。
+  // 🔗 RELATED：src/lib/ima.ts、/api/ima/knowledge-bases、LearningTask.imaKnowledgeBases。
+  const [selectedImaKbs, setSelectedImaKbs] = useState<{ id: string; name: string }[]>([]);
+  const [imaKbOptions, setImaKbOptions] = useState<{ id: string; name: string }[]>([]);
+  const [imaKbStatus, setImaKbStatus] = useState<"idle" | "loading" | "unconfigured" | "error" | "ready">("idle");
   const [imageGroups, setImageGroups] = useState<ImageGroupItem[]>([]);
   const [selectedImageGroupIds, setSelectedImageGroupIds] = useState<string[]>([]);
   // 分页：每页课堂数（用户自定义）与当前页
@@ -2638,6 +2644,28 @@ export default function TeacherTasksPage() {
     });
   };
 
+  // 打开课堂表单时才去 ima 拉知识库列表（避免每次进课堂管理都请求 ima）
+  useEffect(() => {
+    if (!formVisible || imaKbStatus === "loading" || imaKbStatus === "ready") return;
+    setImaKbStatus("loading");
+    fetch("/api/ima/knowledge-bases", { headers: { Authorization: `Bearer ${localStorage.getItem("token")}` } })
+      .then(async (res) => {
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) {
+          setImaKbOptions((data.knowledgeBases || []).map((k: any) => ({ id: k.id, name: k.name })));
+          setImaKbStatus("ready");
+        } else {
+          setImaKbStatus(data.code === "IMA_NOT_CONFIGURED" ? "unconfigured" : "error");
+        }
+      })
+      .catch(() => setImaKbStatus("error"));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formVisible]);
+
+  const toggleImaKb = (kb: { id: string; name: string }) => {
+    setSelectedImaKbs((prev) => (prev.some((x) => x.id === kb.id) ? prev.filter((x) => x.id !== kb.id) : [...prev, kb]));
+  };
+
   const resetForm = () => {
     setFormTitle("");
     setFormDescription("");
@@ -2646,6 +2674,7 @@ export default function TeacherTasksPage() {
     setObjectivesBackup(null);
     setFormClassIds([]);
     setSelectedKbIds([]);
+    setSelectedImaKbs([]);
     setSelectedImageGroupIds([]);
     setEditingTask(null);
     setFormStudentTemplateId("");
@@ -3128,6 +3157,12 @@ export default function TeacherTasksPage() {
       setSelectedKbIds([]);
     }
     try {
+      const imaRefs = detail.imaKnowledgeBases ? JSON.parse(detail.imaKnowledgeBases) : [];
+      setSelectedImaKbs(Array.isArray(imaRefs) ? imaRefs.filter((r: any) => r?.id) : []);
+    } catch {
+      setSelectedImaKbs([]);
+    }
+    try {
       const imgIds = detail.imageGroupIds ? JSON.parse(detail.imageGroupIds) : [];
       setSelectedImageGroupIds(Array.isArray(imgIds) ? imgIds : []);
     } catch {
@@ -3241,6 +3276,7 @@ export default function TeacherTasksPage() {
         knowledgeBase: editingTask?.knowledgeBase || "",
         analysisPrompt: formAnalysisPrompt || editingTask?.analysisPrompt || "",
         knowledgeBaseIds: selectedKbIds.length > 0 ? JSON.stringify(selectedKbIds) : null,
+        imaKnowledgeBases: selectedImaKbs.length > 0 ? JSON.stringify(selectedImaKbs) : null,
         imageGroupIds: selectedImageGroupIds.length > 0 ? JSON.stringify(selectedImageGroupIds) : null,
         classIds: formClassIds,
         classAnalysisPrompt: formClassAnalysisPrompt || (editingTask as any)?.classAnalysisPrompt || "",
@@ -3840,6 +3876,27 @@ export default function TeacherTasksPage() {
                                   </Tag>
                                 ))}
                                 <span className="text-xs text-[var(--muted-light)] ml-1">共 {totalLen.toLocaleString()} 字符</span>
+                              </div>
+                            );
+                          }
+                        } catch { /* ignore */ }
+                        return null;
+                      })()}
+
+                      {/* 关联 ima 知识库 */}
+                      {task.imaKnowledgeBases && (() => {
+                        try {
+                          const refs = JSON.parse(task.imaKnowledgeBases) as { id: string; name: string }[];
+                          if (Array.isArray(refs) && refs.length > 0) {
+                            return (
+                              <div className="text-sm text-[var(--muted)]">
+                                <span className="text-[var(--muted)]">ima 知识库：</span>
+                                {refs.map((r) => (
+                                  <Tag key={r.id} theme="success" variant="light" size="small" style={{ marginRight: 4 }}>
+                                    {r.name}
+                                  </Tag>
+                                ))}
+                                <span className="text-xs text-[var(--muted-light)] ml-1">实时检索</span>
                               </div>
                             );
                           }
@@ -4529,6 +4586,37 @@ export default function TeacherTasksPage() {
               <p className="text-xs text-[var(--muted-light)]">
                 选择后，该课堂下所有对话活动将自动注入所选知识库的全文内容，总字符数不超过 50,000
               </p>
+              {/* ima 知识库：实时检索，不占字符额度 */}
+              <div className="pt-1">
+                <div className="text-xs text-[var(--muted)] mb-1">🔗 ima 知识库（学生提问时实时检索相关片段，不占上方字符额度）</div>
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    ...imaKbOptions,
+                    ...selectedImaKbs.filter((s) => !imaKbOptions.some((o) => o.id === s.id)),
+                  ].map((kb) => {
+                    const on = selectedImaKbs.some((x) => x.id === kb.id);
+                    return (
+                      <Tag
+                        key={kb.id}
+                        theme={on ? "success" : "default"}
+                        variant={on ? "dark" : "light"}
+                        className="cursor-pointer"
+                        onClick={() => toggleImaKb(kb)}
+                      >
+                        {kb.name}
+                      </Tag>
+                    );
+                  })}
+                  {imaKbStatus === "loading" && <span className="text-xs text-[var(--muted-light)]">正在读取 ima 知识库…</span>}
+                  {imaKbStatus === "unconfigured" && (
+                    <span className="text-xs text-[var(--muted-light)]">未对接 ima，可在「系统设置 → ima 知识库」配置</span>
+                  )}
+                  {imaKbStatus === "error" && <span className="text-xs text-[var(--danger)]">读取 ima 知识库失败，请检查网络或凭证</span>}
+                  {imaKbStatus === "ready" && imaKbOptions.length === 0 && (
+                    <span className="text-xs text-[var(--muted-light)]">ima 账号里还没有知识库</span>
+                  )}
+                </div>
+              </div>
             </div>
 
             {/* 引用图片组 */}

@@ -6,6 +6,7 @@ import { createDashScopeClient } from "@/lib/ai";
 import { transcribeAudioWithOmni } from "@/lib/asr";
 import { buildImageInjection, MERMAID_HINT } from "@/lib/image-library";
 import { aiQueue } from "@/lib/ai-queue";
+import { buildImaContext } from "@/lib/ima";
 import { dbWrite } from "@/lib/db-queue";
 import {
   getClassPromptByStrategy,
@@ -264,6 +265,14 @@ export async function POST(req: NextRequest) {
         } catch {
           // knowledgeBaseIds 解析失败，忽略
         }
+      }
+
+      // 3.2 ima 知识库（课堂绑定，2026-11-12）：按学生本次提问实时检索片段追加到提示词。
+      // ⚠️ GOTCHA：ima 无全文接口，只能检索片段；失败/超时（4 秒）静默跳过，不影响正常对话。
+      //   纯语音消息此刻文字仍是占位符（转写在后台），本轮不检索。
+      // 🔗 RELATED：src/lib/ima.ts buildImaContext；课堂编辑页「引用 ima 知识库」。
+      if (task.imaKnowledgeBases) {
+        systemPrompt += await buildImaContext(task.imaKnowledgeBases, textContent);
       }
 
       // 3.5 图片组（课堂级，AI 可在回复中用 Markdown 图片语法发送组内图片）

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Button, Input, MessagePlugin, Switch, Radio } from "tdesign-react";
 import TeacherLayout from "@/components/layout/TeacherLayout";
+import ImaSettingsCard from "@/components/settings/ImaSettingsCard";
 import {
   TeacherThemeKey,
   TEACHER_THEMES,
@@ -1722,6 +1723,9 @@ export default function TeacherSettingsPage() {
             </div>
           )}
         </div>
+
+        {/* ima 知识库对接（2026-11-12）：独立组件，见 src/components/settings/ImaSettingsCard.tsx */}
+        <ImaSettingsCard />
 
         {/* 系统信息 - 可折叠卡片 */}
         <div className="bg-white rounded-xl shadow-sm border border-[var(--card-border)] overflow-hidden">

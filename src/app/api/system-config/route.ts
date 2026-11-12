@@ -51,7 +51,11 @@ export async function PUT(req: NextRequest) {
     }
 
     const body = await req.json();
-    console.log("[System Config] 接收到的更新数据:", JSON.stringify(body, null, 2));
+    // ⛔ DO NOT 原样打印 body：里面有 AI 与 ima 的密钥。日志里把所有 *ApiKey 字段遮成 ***。
+    const redacted = Object.fromEntries(
+      Object.entries(body || {}).map(([k, v]) => [k, /apikey/i.test(k) && v ? "***" : v]),
+    );
+    console.log("[System Config] 接收到的更新数据:", JSON.stringify(redacted, null, 2));
     
     const {
       aiBaseUrl,
@@ -76,6 +80,8 @@ export async function PUT(req: NextRequest) {
       subject,
       conversationWarningThreshold,
       studentMotto,
+      imaClientId,
+      imaApiKey,
     } = body;
 
     // 构建更新数据，只包含有实际值的字段
@@ -104,6 +110,9 @@ export async function PUT(req: NextRequest) {
     if (grade !== undefined) updateData.grade = grade;
     if (subject !== undefined) updateData.subject = subject;
     if (studentMotto !== undefined) updateData.studentMotto = studentMotto;
+    // ima 知识库凭证（空字符串 = 清空，即解除对接）
+    if (imaClientId !== undefined) updateData.imaClientId = (imaClientId || "").trim() || null;
+    if (imaApiKey !== undefined) updateData.imaApiKey = (imaApiKey || "").trim() || null;
     if (conversationWarningThreshold !== undefined && conversationWarningThreshold !== null) {
       updateData.conversationWarningThreshold = conversationWarningThreshold;
     }
@@ -125,11 +134,13 @@ export async function PUT(req: NextRequest) {
           subject: subject ?? null,
           conversationWarningThreshold: conversationWarningThreshold ?? 20000,
           studentMotto: studentMotto ?? null,
+          imaClientId: imaClientId || null,
+          imaApiKey: imaApiKey || null,
           updatedAt: new Date(),
         },
       });
     } else {
-      console.log("[System Config] 更新现有配置，updateData:", JSON.stringify(updateData, null, 2));
+      console.log("[System Config] 更新现有配置，字段:", Object.keys(updateData).join(", "));
       config = await prisma.systemConfig.update({
         where: { id: config.id },
         data: updateData,

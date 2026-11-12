@@ -5,6 +5,7 @@ import { Button, Card, Dialog, Input, MessagePlugin, Tag, Progress, Pagination, 
 import { AddIcon, DeleteIcon, FileIcon, BrowseIcon, CheckCircleIcon, StopCircleIcon } from "tdesign-icons-react";
 import TeacherLayout from "@/components/layout/TeacherLayout";
 import Markdown from "@/components/Markdown";
+import ImaKnowledgePanel from "@/components/knowledge/ImaKnowledgePanel";
 
 // 知识库字符数上限
 const MAX_CONTENT_LENGTH = 50000;
@@ -386,6 +387,9 @@ export default function KnowledgeBasePage() {
             />
           </div>
         )}
+
+        {/* ima 知识库栏（2026-11-12）：浏览/搜索腾讯 ima 知识库，见 src/components/knowledge/ImaKnowledgePanel.tsx */}
+        <ImaKnowledgePanel />
 
         {/* 新建/编辑知识库对话框 */}
         <Dialog
