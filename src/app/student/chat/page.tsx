@@ -886,22 +886,11 @@ export default function StudentChatPage() {
             if (isCurrent()) MessagePlugin.warning("录音太短，请说完一句话再点停止");
             return;
           }
-          // MUST KEEP THE PCM CLOCK: Firefox 的麦克风 track 采样率可能与 context 不同；PCM 以 inputBuffer.sampleRate 为准。
-          // 📐 CONTRACT: 浏览器若不支持跨采样率建图，则捕获异常走压缩通道，不能给 PCM 贴 track 的采样率造成变速。
-          // 🔗 RELATED: 下方 onaudioprocess / src/lib/audio/wav.ts resample；⛔ DO NOT REVERT 成猜测 48000Hz。
-          const total = pcmChunks.reduce((n, chunk) => n + chunk.length, 0);
-          if (total > 0 && pcmRate > 0) {
-            const pcm = new Float32Array(total);
-            let offset = 0;
-            for (const chunk of pcmChunks) { pcm.set(chunk, offset); offset += chunk.length; }
-            const peak = peakOf(pcm);
-            diag.push(`PCM峰值${peak.toFixed(4)} @${pcmRate}Hz`);
-            if (peak >= SILENCE_PEAK) {
-              const url = await pcmToWavDataUrl(pcm, pcmRate);
-              if (isCurrent()) setPendingAudio(url);
-              return;
-            }
-          } else diag.push("PCM无数据");
+          // ⛔ DO NOT REVERT 成「PCM 优先」：先用 MediaRecorder（浏览器原生编码，跑在音频线程），PCM 只作兜底。
+          // 为什么：PCM 通道靠 ScriptProcessor 在页面主线程回调，平板性能弱、页面一卡就丢缓冲产生"咔哒"；
+          //   2026-11-12 平板 Firefox 实录抗混叠修复后仍反馈"声音很杂"，而 MediaRecorder 不受主线程卡顿影响。
+          // 现状：① 解码 MediaRecorder 录音且有声 → 用它；② 否则用 PCM（自带浏览器解不了压缩格式时靠它）；③ 都无声则拒发。
+          // 🔗 RELATED：/mic-test 麦克风测试页可在平板上 A/B 对比两条通道；src/lib/audio/wav.ts 重采样。
 
           // MUST BOUND RECORDER WAIT: Safari/失效设备可能不触发 stop；3 秒上限也归本会话，完成/取消均清除。
           // 🔗 RELATED: MediaRecorder onstop/onerror 与 dispose；⛔ DO NOT REVERT 成不清理 Promise.race 的 timeout。
@@ -930,6 +919,23 @@ export default function StudentChatPage() {
               }
             } catch (e) { diag.push(`解码失败${(e as Error)?.name || ""}`); }
           } else diag.push(!hasRecorder ? "不支持压缩录音" : recorder ? "压缩录音无数据" : "压缩录音启动失败");
+
+          // MUST KEEP THE PCM CLOCK: Firefox 的麦克风 track 采样率可能与 context 不同；PCM 以 inputBuffer.sampleRate 为准。
+          // 📐 CONTRACT: 浏览器若不支持跨采样率建图，则捕获异常走压缩通道，不能给 PCM 贴 track 的采样率造成变速。
+          // 🔗 RELATED: 下方 onaudioprocess / src/lib/audio/wav.ts resample；⛔ DO NOT REVERT 成猜测 48000Hz。
+          const total = pcmChunks.reduce((n, chunk) => n + chunk.length, 0);
+          if (total > 0 && pcmRate > 0) {
+            const pcm = new Float32Array(total);
+            let offset = 0;
+            for (const chunk of pcmChunks) { pcm.set(chunk, offset); offset += chunk.length; }
+            const peak = peakOf(pcm);
+            diag.push(`PCM峰值${peak.toFixed(4)} @${pcmRate}Hz`);
+            if (peak >= SILENCE_PEAK) {
+              const url = await pcmToWavDataUrl(pcm, pcmRate);
+              if (isCurrent()) setPendingAudio(url);
+              return;
+            }
+          } else diag.push("PCM无数据");
           if (isCurrent()) MessagePlugin.error(
             `没有录到声音，未发送。请检查：① 平板下拉快捷设置里的「麦克风」开关是否打开（关闭时只能录到静音）；` +
               `② 麦克风没被其他应用占用；③ 安卓平板可换用 Firefox 重试。（诊断：${diag.join("，")}）`,

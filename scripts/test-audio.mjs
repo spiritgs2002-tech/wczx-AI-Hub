@@ -167,7 +167,8 @@ try {
       createScriptProcessor() { this.proc = this.node(); return this.proc; }
       createGain() { return this.node(); }
       decodeAudioData(data, success) {
-        const result = { sampleRate: 16000, numberOfChannels: 2, getChannelData: i => new Float32Array([i ? 0.5 : 0, i ? 0.5 : 0]) };
+        const v = options.decodeSilent ? 0 : 0.5;
+        const result = { sampleRate: 16000, numberOfChannels: 2, getChannelData: i => new Float32Array([i ? v : 0, i ? v : 0]) };
         queueMicrotask(() => success(result));
         return options.callbackOnly ? undefined : Promise.resolve(result);
       }
@@ -224,13 +225,19 @@ try {
     f.permission.reject(Object.assign(new Error("denied"), { name: "NotAllowedError" })); await pending;
     assert.equal(f.h.stopRecordingRef.current, null); assert.equal(f.contexts[0].closes, 1); assert.equal(f.notices.length, 1);
   });
-  await asyncTest("手动/60秒同时停止只编码一次；处理期间连点不重开；PCM 使用实际时钟", async () => {
-    const f = fixture({ encodePending: true, resumePending: true }); await f.start(); f.pcm(); f.advance(60000);
+  await asyncTest("手动/60秒同时停止只编码一次；处理期间连点不重开；压缩无声时 PCM 兜底并使用实际时钟", async () => {
+    const f = fixture({ encodePending: true, resumePending: true, decodeSilent: true }); await f.start(); f.pcm(); f.advance(60000);
     const deadline = [...f.timers.values()].find(t => t.ms === 60000).fn;
-    await f.h.toggleRecording(); deadline(); await f.h.toggleRecording();
+    await f.h.toggleRecording(); deadline(); await f.h.toggleRecording(); await flush();
     assert.equal(f.requests(), 1); assert.equal(f.recorders[0].stops, 1); assert.equal(f.encodes.length, 1);
     assert.equal(f.encodes[0].rate, 44100); assert.equal(f.track.readyState, "ended");
     f.encoded.resolve("wav"); await flush(); released(f); assert.equal(f.h.state.audio, "wav");
+  });
+  // ⛔ DO NOT REVERT：压缩通道（MediaRecorder）有声时必须优先于 PCM —— PCM 走主线程 ScriptProcessor，平板卡顿会丢缓冲出杂音。
+  await asyncTest("压缩录音有声时优先使用，不用主线程 PCM", async () => {
+    const f = fixture(); await f.start(); f.pcm(); f.advance(1000); await f.h.toggleRecording(); await flush();
+    released(f); assert.equal(f.encodes.length, 1); assert.equal(f.encodes[0].rate, 16000);
+    assert.deepEqual([...f.encodes[0].pcm], [0.25, 0.25]); assert.equal(f.h.state.audio, "data:audio/wav;base64,test");
   });
   await asyncTest("转码中切活动丢弃旧结果；旧 finally 不关闭新会话", async () => {
     const f = fixture({ encodePending: true }); await f.start(); f.pcm(); f.advance(1000); await f.h.toggleRecording();
