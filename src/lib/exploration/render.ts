@@ -6,7 +6,7 @@ import {
   injectAiCompanion,
   removeAiCompanion,
 } from "@/lib/prompts/ai-companion";
-import type { CollectProfile } from "@/lib/exploration/collect-profile";
+import type { CollectProfile } from "@/lib/exploration/collect-profile-core";
 
 /**
  * 探究 HTML 的「纯净稿 ↔ 渲染版」转换（单一事实来源）。

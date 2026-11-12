@@ -49,7 +49,7 @@ import {
 } from "recharts";
 import { removeSubmitFunctionality, detectInstrumentation } from "@/lib/prompts/exploration-submit";
 import { renderExplorationHtml } from "@/lib/exploration/render";
-import { parseCollectProfile } from "@/lib/exploration/collect-profile";
+import { parseCollectProfile } from "@/lib/exploration/collect-profile-core"; // ⛔ 必须用 -core：collect-profile.ts 含 prisma，客户端引入会整页白屏
 import TemplatePreviewButton from "@/components/template/TemplatePreviewButton";
 import ViewFrame from "./ViewFrame";
 import { injectSandboxShim } from "@/lib/exploration/sandbox-shim";
