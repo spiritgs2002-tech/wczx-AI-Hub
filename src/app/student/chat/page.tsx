@@ -24,6 +24,7 @@ import StudentLayout from "@/components/layout/StudentLayout";
 import QuizPanel from "./QuizPanel";
 import ExplorationPanel from "./ExplorationPanel";
 import ProjectSubmitPanel from "./ProjectSubmitPanel";
+import { pcmToWavDataUrl, mixToMono } from "@/lib/audio/wav";
 
 interface MessageImage {
   url: string;
@@ -682,47 +683,9 @@ export default function StudentChatPage() {
     const ctx = new AudioCtx();
     try {
       const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
-      const targetRate = 16000;
-      const length = Math.ceil(audioBuffer.duration * targetRate);
-      const offlineCtx = new OfflineAudioContext(1, length, targetRate);
-      const source = offlineCtx.createBufferSource();
-      source.buffer = audioBuffer;
-      source.connect(offlineCtx.destination);
-      source.start(0);
-      const rendered = await offlineCtx.startRendering();
-      const pcm = rendered.getChannelData(0);
-
-      // 编码 16bit PCM WAV
-      const buffer = new ArrayBuffer(44 + pcm.length * 2);
-      const view = new DataView(buffer);
-      const writeStr = (offset: number, s: string) => {
-        for (let i = 0; i < s.length; i++) view.setUint8(offset + i, s.charCodeAt(i));
-      };
-      writeStr(0, "RIFF");
-      view.setUint32(4, 36 + pcm.length * 2, true);
-      writeStr(8, "WAVE");
-      writeStr(12, "fmt ");
-      view.setUint32(16, 16, true);
-      view.setUint16(20, 1, true); // PCM
-      view.setUint16(22, 1, true); // 单声道
-      view.setUint32(24, targetRate, true);
-      view.setUint32(28, targetRate * 2, true);
-      view.setUint16(32, 2, true);
-      view.setUint16(34, 16, true);
-      writeStr(36, "data");
-      view.setUint32(40, pcm.length * 2, true);
-      for (let i = 0; i < pcm.length; i++) {
-        const s = Math.max(-1, Math.min(1, pcm[i]));
-        view.setInt16(44 + i * 2, s < 0 ? s * 0x8000 : s * 0x7fff, true);
-      }
-
-      const wavBlob = new Blob([buffer], { type: "audio/wav" });
-      return await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result as string);
-        reader.onerror = () => reject(reader.error);
-        reader.readAsDataURL(wavBlob);
-      });
+      const channels = Array.from({ length: audioBuffer.numberOfChannels }, (_, i) => audioBuffer.getChannelData(i));
+      // ⛔ 重采样必须走 @/lib/audio/wav（带抗混叠），不要改回 OfflineAudioContext —— 原因见该文件头注释
+      return await pcmToWavDataUrl(mixToMono(channels), audioBuffer.sampleRate);
     } finally {
       void ctx.close();
     }
@@ -773,61 +736,6 @@ export default function StudentChatPage() {
   };
   const formatRecordSec = (s: number) =>
     `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
-
-  // 把采集到的原始 PCM（任意采样率）重采样为 16kHz 单声道并编码成 WAV dataURL
-  const pcmToWavDataUrl = async (pcm: Float32Array, srcRate: number): Promise<string> => {
-    const targetRate = 16000;
-    let out: Float32Array;
-    try {
-      const offline = new OfflineAudioContext(1, Math.max(1, Math.ceil((pcm.length * targetRate) / srcRate)), targetRate);
-      const buf = offline.createBuffer(1, pcm.length, srcRate);
-      buf.getChannelData(0).set(pcm);
-      const src = offline.createBufferSource();
-      src.buffer = buf;
-      src.connect(offline.destination);
-      src.start(0);
-      out = (await offline.startRendering()).getChannelData(0);
-    } catch {
-      // 个别浏览器 OfflineAudioContext 不支持该采样率组合 → 线性插值兜底
-      const len = Math.max(1, Math.floor((pcm.length * targetRate) / srcRate));
-      out = new Float32Array(len);
-      const ratio = srcRate / targetRate;
-      for (let i = 0; i < len; i++) {
-        const p = i * ratio;
-        const i0 = Math.floor(p);
-        const i1 = Math.min(i0 + 1, pcm.length - 1);
-        out[i] = pcm[i0] + (pcm[i1] - pcm[i0]) * (p - i0);
-      }
-    }
-    const buffer = new ArrayBuffer(44 + out.length * 2);
-    const view = new DataView(buffer);
-    const writeStr = (offset: number, s: string) => {
-      for (let i = 0; i < s.length; i++) view.setUint8(offset + i, s.charCodeAt(i));
-    };
-    writeStr(0, "RIFF");
-    view.setUint32(4, 36 + out.length * 2, true);
-    writeStr(8, "WAVE");
-    writeStr(12, "fmt ");
-    view.setUint32(16, 16, true);
-    view.setUint16(20, 1, true);
-    view.setUint16(22, 1, true);
-    view.setUint32(24, targetRate, true);
-    view.setUint32(28, targetRate * 2, true);
-    view.setUint16(32, 2, true);
-    view.setUint16(34, 16, true);
-    writeStr(36, "data");
-    view.setUint32(40, out.length * 2, true);
-    for (let i = 0; i < out.length; i++) {
-      const s = Math.max(-1, Math.min(1, out[i]));
-      view.setInt16(44 + i * 2, s < 0 ? s * 0x8000 : s * 0x7fff, true);
-    }
-    return await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as string);
-      reader.onerror = () => reject(reader.error);
-      reader.readAsDataURL(new Blob([buffer], { type: "audio/wav" }));
-    });
-  };
 
   // ⛔ DO NOT REVERT 成单一录音通道（只用 MediaRecorder，或只用原始 PCM）：
   // 为什么（2026-11-12 两次安卓平板实测，桌面 Chrome 两种都正常，所以很难在电脑上发现）：
