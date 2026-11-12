@@ -65,6 +65,11 @@ npx tsc --noEmit
 
 > ⚠️ **长命令/构建请用后台方式跑**（`setsid nohup ... &` 之类），跑完再回来看结果，不要阻塞在一条命令上。
 
+> ⛔ DO NOT RUN `npm run build` IN A DIRECTORY WHERE `npm run dev` IS RUNNING.
+> 构建会覆盖同目录的 `.next/`，正在运行的开发服务器随即找不到页面文件（`Cannot find module './xxxx.js'`、静态资源 404），
+> 表现为**整站白屏 / 无法登录**（2026-11-12 实际发生：Codex 在用户开发目录 `~/Desktop/wczx-AI-Hub` 验证构建）。
+> 需要验证构建时：在另一个检出目录（如 Claude 的 worktree）里跑；或先停掉开发服务器，构建完执行 `rm -rf .next` 再 `npm run dev`。
+
 ---
 
 ## 3. 硬约束（🛑 必须遵守）
