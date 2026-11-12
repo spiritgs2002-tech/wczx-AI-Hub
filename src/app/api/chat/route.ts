@@ -94,7 +94,10 @@ export async function POST(req: NextRequest) {
 
     // 语音转写（2026-10-15 需求）：纯语音消息（文字为占位符"(发送了语音)"）用全媒体模型
     // 转写为文字，存库后记录既能看文字又能播音频；分析链路只取文字。
-    // 转写与下方数据库读查询并行，失败降级保留占位符，不阻塞对话。
+    // ⛔ DO NOT REVERT 成「等转写完再回复」：转写是一次完整的模型调用，原先 await 在回复之前，
+    //   语音回复要串行等两次模型（2026-11-12 平板反馈"语音反应慢"）。现在回复立即开始（模型直接"听"原声），
+    //   转写在后台完成后再回写用户消息文字与新对话标题；失败保留占位符。
+    // 🔗 RELATED：下方「写操作 2」之后的 transcribePromise.then 回写。
     const transcribePromise =
       typeof lastMessage.content !== "string" &&
       lastMessage.content.some((p) => p.type === "audio_url") &&
@@ -132,25 +135,17 @@ export async function POST(req: NextRequest) {
       : Promise.resolve(null);
 
     // 等待读查询完成，再决定写操作
-    const [classData, materials, presetConv, currentUser, transcribedText] = await Promise.all([
+    const [classData, materials, presetConv, currentUser] = await Promise.all([
       classDataPromise,
       materialsPromise,
       presetConvPromise,
       currentUserPromise,
-      transcribePromise,
     ]);
 
     if (!classData) {
       return new Response("班级不存在", { status: 404 });
     }
 
-    // 转写成功：用转写文字替换占位符（存库 + 发模型的文字都更新；音频 part 保留，AI 仍能"听"原声）
-    if (transcribedText && typeof lastMessage.content !== "string") {
-      lastMessage.content = lastMessage.content.map((p) =>
-        p.type === "text" ? { ...p, text: transcribedText } : p
-      );
-      textContent = transcribedText;
-    }
 
     // 写操作 1：创建新对话（如需要）
     let createConvResult: { id: string } | null = null;
@@ -186,7 +181,7 @@ export async function POST(req: NextRequest) {
 
     // 写操作 2：保存用户消息（依赖 convId 已确定）
     // 多模态消息把完整 JSON 存下来，刷新后仍能显示图片 / 音频
-    await dbWrite(() =>
+    const savedUserMessage = await dbWrite(() =>
       prisma.message.create({
         data: {
           conversationId: convId!,
@@ -197,6 +192,24 @@ export async function POST(req: NextRequest) {
         },
       })
     );
+
+    // 后台回写转写文字：不阻塞下方 AI 回复（音频 part 保留，刷新后既能看文字又能播原声）
+    const savedContent = lastMessage.content;
+    const createdConvId = needCreate ? convId! : null;
+    void transcribePromise
+      .then(async (transcribed) => {
+        if (!transcribed || typeof savedContent === "string") return;
+        const withText = savedContent.map((p) => (p.type === "text" ? { ...p, text: transcribed } : p));
+        await dbWrite(() =>
+          prisma.message.update({ where: { id: savedUserMessage.id }, data: { content: JSON.stringify(withText) } })
+        );
+        if (createdConvId) {
+          await dbWrite(() =>
+            prisma.conversation.update({ where: { id: createdConvId }, data: { title: transcribed.slice(0, 50) } })
+          );
+        }
+      })
+      .catch((e) => console.warn("[asr] 转写回写失败：", e instanceof Error ? e.message : e));
 
     let systemPrompt = "";
 
