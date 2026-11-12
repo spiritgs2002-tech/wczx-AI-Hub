@@ -973,10 +973,20 @@ export default function StudentChatPage() {
 
       void (async () => {
         await Promise.race([recDone, new Promise((r) => setTimeout(r, 3000))]);
+        // 麦克风轨道状态必须在 stop() 之前取（stop 后 readyState 恒为 ended）。
+        // 诊断用：muted=是 通常表示系统/浏览器 App 层面没给声音（安卓麦克风隐私开关、App 未获麦克风权限、套壳浏览器）
+        const track = stream.getAudioTracks()[0];
+        const ua = navigator.userAgent;
+        const browser =
+          (/; wv\)/.test(ua) ? "内嵌WebView " : "") +
+          (ua.match(/(EdgA?|HuaweiBrowser|HeyTapBrowser|VivoBrowser|MiuiBrowser|SamsungBrowser|UCBrowser|QQBrowser|MicroMessenger|Chrome)\/[\d]+/)?.[0] || "未知浏览器");
+        const trackDiag = track
+          ? `麦克风${track.readyState === "live" ? "在线" : track.readyState}${track.muted ? "·被系统静音" : ""}${track.enabled ? "" : "·已禁用"}`
+          : "无麦克风轨道";
         stream.getTracks().forEach((t) => t.stop());
         recordingStreamRef.current = null;
         const rate = ctx?.sampleRate || 48000;
-        const diag: string[] = [];
+        const diag: string[] = [trackDiag, browser];
         try {
           if (Date.now() - startedAt < 600) {
             MessagePlugin.warning("录音太短，请说完一句话再点停止");
@@ -1019,7 +1029,7 @@ export default function StudentChatPage() {
               diag.push(`解码失败${(e as Error)?.name || ""}`);
             }
           } else {
-            diag.push("无压缩录音");
+            diag.push(!hasRecorder ? "不支持压缩录音" : recorder ? "压缩录音无数据" : "压缩录音启动失败");
           }
           MessagePlugin.error(
             // ⚠️ GOTCHA：安卓 12+ 下拉快捷设置里的「麦克风」隐私开关关闭时，浏览器不报错、只能录到静音 —— 必须提示这一条
