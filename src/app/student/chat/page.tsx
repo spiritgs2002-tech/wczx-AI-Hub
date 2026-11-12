@@ -778,6 +778,21 @@ export default function StudentChatPage() {
       return;
     }
     if (!activePresetId) return;
+    // ⚠️ GOTCHA：浏览器只在「安全来源」（HTTPS 或 localhost）开放麦克风。学生用 http://教师IP:3000 访问时
+    //   navigator.mediaDevices 直接是 undefined，系统/浏览器里给了麦克风权限也没用。
+    //   旧版这里统一提示"请检查浏览器权限设置"，老师按提示查权限查不出问题（2026-11-12 安卓平板实测）。
+    // 现状：先判断安全来源，再按 getUserMedia 的错误类型分别提示真实原因。
+    // ⛔ DO NOT REVERT 成单一的"检查权限"提示。
+    // 🔗 RELATED：readme.md「Q: 平板（Android）录音提示无法访问麦克风」（chrome://flags 设置步骤）。
+    if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+      MessagePlugin.error(
+        `当前通过 ${window.location.origin} 访问，浏览器禁止非 HTTPS 网页使用麦克风（与权限设置无关）。` +
+          `请在平板 Chrome 打开 chrome://flags/#unsafely-treat-insecure-origin-as-secure，` +
+          `填入 ${window.location.origin}，选 Enabled 并重启浏览器`,
+        15000,
+      );
+      return;
+    }
     if (typeof MediaRecorder === "undefined") {
       MessagePlugin.error("当前浏览器不支持录音，请用 Chrome / Edge");
       return;
@@ -823,8 +838,17 @@ export default function StudentChatPage() {
           return next;
         });
       }, 1000);
-    } catch {
-      MessagePlugin.error("无法访问麦克风，请检查浏览器权限设置");
+    } catch (err) {
+      const name = (err as { name?: string })?.name || "";
+      const msg =
+        name === "NotAllowedError" || name === "SecurityError"
+          ? "麦克风权限被拒绝：请点地址栏左侧图标 → 网站设置 → 麦克风 → 允许，并在系统设置里允许浏览器使用麦克风"
+          : name === "NotFoundError" || name === "OverconstrainedError"
+            ? "没有检测到麦克风设备，请检查耳机/麦克风是否已连接"
+            : name === "NotReadableError" || name === "AbortError"
+              ? "麦克风正被其他应用占用，请关闭其他录音/通话应用后重试"
+              : `无法访问麦克风（${name || "未知错误"}），请检查浏览器权限设置`;
+      MessagePlugin.error(msg, 8000);
     }
   };
 
