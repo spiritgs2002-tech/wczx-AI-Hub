@@ -144,7 +144,11 @@ async function pruneCache(): Promise<void> {
 const REGISTRY_MAX = 300;
 const REGISTRY_TTL_MS = 6 * 60 * 60 * 1000;
 
-const registry = new Map<string, { text: string; voice: string; at: number }>();
+// ⚠️ GOTCHA：注册表必须挂在 globalThis 上。/api/tts 与 /api/tts/audio/[id] 是两个路由，开发模式下各自编译、各有一份模块实例，
+//   放在模块级变量里会导致“刚登记的 id 在播放接口里查不到”（2026-11-12 实测返回 404「朗读内容已过期」）。
+type TtsRegistry = Map<string, { text: string; voice: string; at: number }>;
+const globalForTts = globalThis as unknown as { __wczxTtsRegistry?: TtsRegistry };
+const registry: TtsRegistry = globalForTts.__wczxTtsRegistry ?? (globalForTts.__wczxTtsRegistry = new Map());
 
 /** 登记文本，返回可播放的 id */
 export function registerText(voice: string, text: string): string {

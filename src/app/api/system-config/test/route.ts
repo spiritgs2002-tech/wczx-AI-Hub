@@ -1,7 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
+import { verifyToken } from "@/lib/auth";
 
 export async function POST(req: NextRequest) {
   try {
+    // ⛔ DO NOT REMOVE：仅教师可调用。本接口会让服务器向请求体里任意 URL 发 POST，
+    //   无鉴权时局域网内任何人都能借它探测/访问学校内网（SSRF）。返回 JSON 以兼容设置页的 res.json() 解析。
+    const token = req.headers.get("authorization")?.replace("Bearer ", "") || "";
+    const payload = token ? await verifyToken(token) : null;
+    if (!payload || payload.role !== "TEACHER") {
+      return NextResponse.json({ success: false, error: "仅教师可测试 AI 连接" }, { status: payload ? 403 : 401 });
+    }
+
     const { aiBaseUrl, aiApiKey, aiModel, reasoningEnabled } = await req.json();
 
     if (!aiBaseUrl || !aiApiKey || !aiModel) {

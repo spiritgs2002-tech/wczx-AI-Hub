@@ -52,6 +52,7 @@ import { renderExplorationHtml } from "@/lib/exploration/render";
 import { parseCollectProfile } from "@/lib/exploration/collect-profile";
 import TemplatePreviewButton from "@/components/template/TemplatePreviewButton";
 import ViewFrame from "./ViewFrame";
+import { injectSandboxShim } from "@/lib/exploration/sandbox-shim";
 
 interface AnalysisTemplate {
   id: string;
@@ -5139,9 +5140,9 @@ export default function TeacherTasksPage() {
                   </div>
                   {activeTab === "preview" ? (
                     <iframe
-                      srcDoc={explorationPreview || '<html><body style="display:flex;align-items:center;justify-content:center;height:100vh;color:#999;font-family:sans-serif">暂无内容</body></html>'}
+                      srcDoc={explorationPreview ? injectSandboxShim(explorationPreview) : '<html><body style="display:flex;align-items:center;justify-content:center;height:100vh;color:#999;font-family:sans-serif">暂无内容</body></html>'}
                       className="flex-1 w-full"
-                      sandbox="allow-scripts allow-same-origin"
+                      sandbox="allow-scripts" /* ⛔ DO NOT ADD allow-same-origin：srcDoc 与本页同源，加上即可读走教师登录令牌；存储访问由 injectSandboxShim 兜底 */
                       title="预览"
                       style={{ minHeight: 300 }}
                     />
@@ -5497,9 +5498,9 @@ export default function TeacherTasksPage() {
         >
           <div style={{ height: "70vh" }}>
             <iframe
-              srcDoc={previewHtml}
+              srcDoc={injectSandboxShim(previewHtml)}
               className="w-full h-full"
-              sandbox="allow-scripts allow-same-origin"
+              sandbox="allow-scripts" /* ⛔ DO NOT ADD allow-same-origin：srcDoc 与本页同源，加上即可读走教师登录令牌；存储访问由 injectSandboxShim 兜底 */
               title="探究预览"
             />
           </div>

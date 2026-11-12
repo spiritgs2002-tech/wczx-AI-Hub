@@ -368,6 +368,9 @@ export default function TeacherSettingsPage() {
           studentMotto: data.studentMotto || ""
         }));
 
+        // 改密码后服务端会签发新令牌（旧令牌已失效），必须写回，否则后续请求全部 401
+        if (data.token) localStorage.setItem("token", data.token);
+
         // 更新本地存储的用户信息
         const storedUser = localStorage.getItem("user");
         if (storedUser) {
@@ -564,7 +567,8 @@ export default function TeacherSettingsPage() {
     try {
       const res = await fetch("/api/system-config/test", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        // 接口已限教师调用（防止被借用探测内网），必须带登录令牌
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("token")}` },
         body: JSON.stringify({
           aiBaseUrl: item.baseURL,
           aiApiKey: item.apiKey,

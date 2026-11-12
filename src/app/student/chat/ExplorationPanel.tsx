@@ -23,6 +23,9 @@ const AiCompanionRobotIcon = ({ size = "14px", className = "" }: { size?: string
   </svg>
 );
 import { stopSpeaking } from "@/lib/speech";
+import { getSpeechSettings, subscribeSpeechSettings } from "@/lib/speech-settings";
+import { injectSandboxShim } from "@/lib/exploration/sandbox-shim";
+
 
 interface ExplorationPanelProps {
   explorationId: string;
@@ -57,7 +60,7 @@ export default function ExplorationPanel({
     .replace(/^\s*```(?:html|HTML)?\s*\n/i, "")
     .replace(/\n\s*```\s*$/i, "")
     .trim();
-  const htmlContentFinal = cleanedHtml;
+  const htmlContentFinal = injectSandboxShim(cleanedHtml);
 
   const [checkingStatus, setCheckingStatus] = useState(true);
   const [submitted, setSubmitted] = useState(false);
@@ -129,7 +132,8 @@ export default function ExplorationPanel({
   useEffect(() => {
     if (!aiCompanionOn) return;
 
-    const targetOrigin = "*"; // iframe 内容是同源注入，使用 *
+    // iframe 为不透明源（sandbox 无 allow-same-origin），只能用 "*" 投递；消息里不放登录令牌
+    const targetOrigin = "*";
     // 不在 useEffect 内闭包捕获 iframe 引用，避免 React 渲染时序导致 ref.current 为 null 的问题
     // 每次发送消息时动态读取最新的 iframeRef.current
     const postToIframe = (msg: any) => {
@@ -147,8 +151,11 @@ export default function ExplorationPanel({
       if (!e.data?.type) return;
       const token = localStorage.getItem("token") || "";
 
-      // iframe通知：已就绪，请求历史消息
+      // iframe通知：已就绪 → 先下发上下文（朗读设置），再下发历史消息
+      // ⚠️ GOTCHA：iframe 已无同源权限，读不到 localStorage，也无法直接请求本服务器（浏览器会拦截）；
+      // 📐 CONTRACT 消息类型与 src/lib/prompts/ai-companion.ts MUST STAY IN SYNC
       if (e.data.type === "AI_COMPANION_READY") {
+        postToIframe({ type: "AI_COMPANION_CONTEXT", speech: getSpeechSettings() });
         try {
           const res = await fetch(
             `/api/exploration-activities/${explorationId}/ai-chat/history`,
@@ -176,6 +183,48 @@ export default function ExplorationPanel({
             postToIframe({ type: "AI_COMPANION_CLEARED" });
           }
         } catch {}
+        return;
+      }
+
+      // iframe通知：代取资源（AI_COMPANION_BRIDGE）。iframe 为不透明源，浏览器会拦截它对本服务器的请求，
+      // 所以图片 / 朗读音频都由宿主带登录态取回后回传：图片 → data URL，音频 → ArrayBuffer（transfer，不复制）。
+      // ⛔ 只代取白名单内的本站接口（kind 固定、图片 URL 必须是 /api/images/<id>），防止页面脚本借宿主身份访问任意接口。
+      if (e.data.type === "AI_COMPANION_BRIDGE") {
+        const { kind, reqId, data } = e.data;
+        const reply = (result: Record<string, unknown>, transfer: Transferable[] = []) => {
+          const win = iframeRef.current?.contentWindow;
+          if (win) win.postMessage({ type: "AI_COMPANION_BRIDGE_RESULT", reqId, result }, "*", transfer);
+        };
+        try {
+          if (kind === "image" && typeof data?.url === "string" && /^\/api\/images\/[A-Za-z0-9_-]+$/.test(data.url)) {
+            const r = await fetch(data.url, { headers: { Authorization: `Bearer ${token}` } });
+            if (!r.ok) return reply({ ok: false });
+            const blob = await r.blob();
+            const dataUrl = await new Promise<string>((resolve, reject) => {
+              const fr = new FileReader();
+              fr.onload = () => resolve(String(fr.result));
+              fr.onerror = () => reject(fr.error);
+              fr.readAsDataURL(blob);
+            });
+            return reply({ ok: true, dataUrl });
+          }
+          if (kind === "tts" && typeof data?.text === "string") {
+            const r = await fetch("/api/tts", {
+              method: "POST",
+              headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+              body: JSON.stringify({ text: data.text, voice: data.voice }),
+            });
+            const d = r.ok ? await r.json() : null;
+            if (!d?.ok || !d?.id) return reply({ ok: false, text: d?.text });
+            const a = await fetch(`/api/tts/audio/${encodeURIComponent(d.id)}`);
+            if (!a.ok) return reply({ ok: false, text: d.text });
+            const audio = await a.arrayBuffer();
+            return reply({ ok: true, audio, mime: a.headers.get("content-type") || "audio/mpeg", text: d.text }, [audio]);
+          }
+          reply({ ok: false });
+        } catch {
+          reply({ ok: false });
+        }
         return;
       }
 
@@ -224,8 +273,13 @@ export default function ExplorationPanel({
     };
 
     window.addEventListener("message", handleAiCompanionMessage);
+    // 学生在页面右上角改朗读设置时，同步给 iframe（原先依赖同源 storage 事件，现已不可用）
+    const unsubscribeSpeech = subscribeSpeechSettings((speech) => {
+      postToIframe({ type: "AI_COMPANION_CONTEXT", speech });
+    });
     return () => {
       window.removeEventListener("message", handleAiCompanionMessage);
+      unsubscribeSpeech();
     };
   }, [explorationId, aiCompanionOn]);
 
@@ -270,7 +324,9 @@ export default function ExplorationPanel({
           // ===== 可参与：显示互动内容（包含提交按钮） =====
           <div className="p-4">
             <div className="text-sm text-gray-500 mb-2">完成互动后，点击页面左下角的红色「提交」按钮提交你的结果。</div>
-            {/* ⛔ DO NOT REVERT: iframe sandbox 必须包含 allow-popups，否则内部 <a target="_blank"> / window.open 会被浏览器静默拦截。
+            {/* ⛔ DO NOT ADD allow-same-origin：srcDoc 与宿主同源，加上它沙箱即失效，页面脚本可直接读 localStorage 里的登录令牌
+                （2026-11-11 体检发现）。需要宿主能力（提交、伴学、朗读、看图）一律走 postMessage，见上方各 handler。
+                ⛔ DO NOT REVERT: iframe sandbox 必须包含 allow-popups，否则内部 <a target="_blank"> / window.open 会被浏览器静默拦截。
                 原因：探究 HTML 由教师/AI 生成，常嵌入外部资源链接，学生点击需弹出新标签页。
                 关联：src/app/teacher/tasks/[taskId]/exploration/[explorationId]/page.tsx 的预览 iframe 同理，若未来也支持外部链接需同步。
                 测试：修改后可用带 target="_blank" 的探究内容验证点击能否打开新标签页。 */}
@@ -279,7 +335,8 @@ export default function ExplorationPanel({
               srcDoc={htmlContentFinal}
               className="w-full rounded-lg border border-gray-200"
               style={{ height: "calc(100vh - 200px)" }}
-              sandbox="allow-scripts allow-same-origin allow-forms allow-autoplay allow-popups allow-popups-to-escape-sandbox"
+              sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox"
+              allow="autoplay"
               title="探究内容"
             />
           </div>
@@ -292,7 +349,8 @@ export default function ExplorationPanel({
               srcDoc={htmlContentFinal}
               className="w-full rounded-lg border border-gray-200"
               style={{ height: "calc(100vh - 160px)" }}
-              sandbox="allow-scripts allow-same-origin allow-autoplay allow-popups allow-popups-to-escape-sandbox"
+              sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"
+              allow="autoplay"
               title="探究内容"
             />
           </div>

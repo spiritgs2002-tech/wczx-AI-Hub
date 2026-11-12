@@ -1,19 +1,18 @@
-import { NextRequest } from "next/server";
-import { verifyToken } from "@/lib/auth";
+import { NextRequest, NextResponse } from "next/server";
+import { requireTeacher, ownsSubProject } from "@/lib/api-auth";
 import { createDashScopeClient } from "@/lib/ai";
 import { getSubProjectContext } from "@/lib/exploration/context";
 
 // POST: 多轮对话流式生成/修改互动探究 HTML 网页
 export async function POST(req: NextRequest) {
   try {
-    const token = req.headers.get("authorization")?.replace("Bearer ", "");
-    if (!token) return new Response("未登录", { status: 401 });
-    const payload = await verifyToken(token);
-    if (!payload) return new Response("登录已过期", { status: 401 });
+    // 仅教师可调用（⛔ DO NOT REMOVE）：AI 生成会消耗教师配置的模型额度，学生 token 不得调用
+    const auth = await requireTeacher(req);
+    if (auth instanceof NextResponse) return auth;
 
     const { subProjectId, initialPrompt, currentHtml, instruction } = await req.json();
-    if (!subProjectId) {
-      return new Response("缺少 subProjectId", { status: 400 });
+    if (!subProjectId || !(await ownsSubProject(subProjectId, auth.userId))) {
+      return new Response(subProjectId ? "子项目不存在" : "缺少 subProjectId", { status: subProjectId ? 404 : 400 });
     }
 
     // 课堂背景（作为首轮设计意图的上下文）

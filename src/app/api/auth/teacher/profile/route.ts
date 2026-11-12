@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { verifyToken } from "@/lib/auth";
+import { verifyToken, createToken } from "@/lib/auth";
 import bcrypt from "bcryptjs";
 
 // GET: 获取当前用户信息
@@ -155,6 +155,18 @@ export async function PUT(req: NextRequest) {
         studentMotto: true,
       },
     });
+
+    // 改了密码 → 旧令牌已因密码指纹变化而失效（见 src/lib/auth.ts），这里给当前用户签发新令牌，避免保存后立即被登出。
+    // 📐 CONTRACT：字段与登录接口签发的令牌一致；前端 settings 页收到 token 字段后写回 localStorage。
+    if (updateData.password) {
+      const token = await createToken({
+        userId: updatedUser.id,
+        email: updatedUser.email,
+        role: updatedUser.role,
+        name: updatedUser.name,
+      });
+      return NextResponse.json({ ...updatedUser, token });
+    }
 
     return NextResponse.json(updatedUser);
   } catch (error) {

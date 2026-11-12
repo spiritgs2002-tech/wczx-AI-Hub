@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { createToken } from "@/lib/auth";
 import bcrypt from "bcryptjs";
+import { lockedMinutes, recordFailure, clearFailures, tooManyAttemptsMessage } from "@/lib/rate-limit";
 import type { Prisma } from "@prisma/client";
 
 type StudentCandidate = Prisma.UserGetPayload<{
@@ -139,6 +140,13 @@ export async function POST(req: NextRequest) {
 
     // ===== 情况2：密码登录（必须有密码） =====
     if (password) {
+      // 失败次数限制（⛔ DO NOT REMOVE：防止逐个猜同学的密码，见 src/lib/rate-limit.ts）
+      const rlKey = `student:${String(studentNo || "").trim()}|${String(name || "").trim()}`;
+      const waitMin = lockedMinutes(rlKey);
+      if (waitMin > 0) {
+        return NextResponse.json({ error: tooManyAttemptsMessage(waitMin) }, { status: 429 });
+      }
+
       // 定位候选学生：学号优先（唯一性强），未命中再按姓名兜底。
       // 姓名和学号都可能跨班级重复（学号仅班内查重），因此先收集全部候选再逐步收窄，
       // 避免 findFirst 无排序导致同名学生登录到哪个课堂不可控
@@ -205,8 +213,10 @@ export async function POST(req: NextRequest) {
             { status: 401 }
           );
         }
+        recordFailure(rlKey);
         return NextResponse.json({ error: "密码错误" }, { status: 401 });
       }
+      clearFailures(rlKey);
 
       // 密码匹配到多个班级的账号（如同名跨班且都被重置为默认密码）：
       // 不随机进入某个课堂，返回班级列表让学生选择

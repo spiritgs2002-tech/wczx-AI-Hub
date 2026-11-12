@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import bcrypt from "bcryptjs";
+import { lockedMinutes, recordFailure, clearFailures, tooManyAttemptsMessage } from "@/lib/rate-limit";
 
 // 方式二：通过密钥文件恢复密码
 export async function POST(req: NextRequest) {
@@ -12,6 +13,13 @@ export async function POST(req: NextRequest) {
         { error: "请上传密钥文件并填写信息" },
         { status: 400 }
       );
+    }
+
+    // 失败次数限制（⛔ DO NOT REMOVE：防暴力猜解，见 src/lib/rate-limit.ts）
+    const rlKey = `recover-key:${String(phone).trim()}`;
+    const waitMin = lockedMinutes(rlKey);
+    if (waitMin > 0) {
+      return NextResponse.json({ error: tooManyAttemptsMessage(waitMin) }, { status: 429 });
     }
 
     const user = await prisma.user.findFirst({ where: { phone } });
@@ -26,6 +34,7 @@ export async function POST(req: NextRequest) {
     // 验证密钥文件
     const isValid = await bcrypt.compare(recoveryKey, user.passwordKeyHash);
     if (!isValid) {
+      recordFailure(rlKey);
       return NextResponse.json({ error: "密钥文件无效" }, { status: 401 });
     }
 
