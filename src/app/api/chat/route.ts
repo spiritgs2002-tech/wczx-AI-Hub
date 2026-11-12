@@ -71,6 +71,10 @@ function isMultimodalContent(content: MessageContent): boolean {
   return content.some((part) => part.type === "image_url" || part.type === "audio_url");
 }
 
+// 按线路记住模型报出的输出上限（"Range of max tokens should be [1, N]"），后续请求直接用 N，免得每次先失败一回。
+// ⚠️ GOTCHA：换模型后旧上限仍生效直到重启服务；它只会让输出上限偏小，不会导致失败，可接受。
+const learnedMaxTokens: Record<string, number> = {};
+
 export async function POST(req: NextRequest) {
   try {
     const token = req.headers.get("authorization")?.replace("Bearer ", "");
@@ -329,8 +333,13 @@ export async function POST(req: NextRequest) {
         return { role: m.role as "user" | "assistant", content: m.content };
       }
       // 多模态消息：将 image_url / audio_url 转为 ai v6 SDK 的多模态格式
+      // ⛔ DO NOT REVERT：omni 线路也只保留「最新一条消息」的音频，历史语音只发其转写文字。
+      // 为什么：2026-11-12 一个对话里累积 7 条语音，每轮把全部历史音频（约 1MB base64）发给
+      //   qwen omni，网关报 "The provided URL does not appear to be valid"；同格式的单条音频（ASR 转写）却成功。
+      //   历史语音的文字已由 ASR 写回消息 text，上下文不丢。
+      // 🔗 RELATED：src/lib/asr.ts（转写写回）；上方 text 线路剥离历史音频的同类教训。
       const parts = m.content
-        .filter((part) => isOmniRoute || part.type !== "audio_url")
+        .filter((part) => part.type !== "audio_url" || (isOmniRoute && m === lastMessage))
         .map((part) => {
         if (part.type === "image_url") {
           const url = part.image_url.url;
@@ -394,6 +403,10 @@ export async function POST(req: NextRequest) {
 
         // 单次流式请求。AI SDK v6 在 429 限流/403 配额等错误时 for-await 不抛异常、
         // 流为空，必须借 onError 回调才能拿到真实错误（与 exploration ai-chat 路由同款防护）
+        // ⚠️ GOTCHA：输出上限默认 64K，但部分模型（如 omni、deepseek-flash）上限更低，网关报
+        //   "Range of max tokens should be [1, N]"。首次失败后按报错里的 N 自动降级重试（2026-11-12 omni 实测）。
+        const routeKey = isOmniRoute ? "omni" : "text";
+        let maxOutputTokens = learnedMaxTokens[routeKey] ?? 65536;
         const runStream = async () => {
           const result = await aiQueue.enqueue(async () => {
             return streamText({
@@ -401,7 +414,7 @@ export async function POST(req: NextRequest) {
               system: systemPrompt,
               messages: formattedMessages,
               // 统一输出上限 64K（网关默认 4096 会截断长输出，实测硬上限 65536）
-              maxOutputTokens: 65536,
+              maxOutputTokens,
               onError: ({ error }: { error: unknown }) => {
                 const errMsg = error instanceof Error ? error.message : String(error);
                 console.error("[chat] streamText onError:", errMsg);
@@ -435,7 +448,15 @@ export async function POST(req: NextRequest) {
           // 空流自动重试一次：此时客户端尚未收到任何内容，重试无副作用；
           // 偶发的限流（429）/网关抖动导致的空流，重试大概率恢复
           if (chunkCount === 0) {
-            console.warn("[chat] AI 返回空流，自动重试一次");
+            const limit = (streamError as Error | null)?.message.match(/max.?tokens[^\[]*\[\s*1\s*,\s*(\d+)\s*\]/i);
+            if (limit) {
+              maxOutputTokens = Number(limit[1]);
+              learnedMaxTokens[routeKey] = maxOutputTokens;
+              console.warn(`[chat] 模型输出上限为 ${maxOutputTokens}，按此上限重试`);
+            } else {
+              console.warn("[chat] AI 返回空流，自动重试一次");
+            }
+            streamError = null;
             await runStream();
           }
 
