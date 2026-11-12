@@ -151,8 +151,9 @@ export default function TeacherLayout({
         >
           {!sidebarCollapsed && (
             <>
-              <h2 className="text-lg font-bold text-[var(--primary)] tracking-tight">WenChang SmartFusion</h2>
-              <p className="text-sm font-medium text-[var(--muted)]">文昌智融平台</p>
+              {/* 品牌标识居中（2026-11-12 用户要求）；英文名在 w-52 侧栏内会折成两行，两行都居中 */}
+              <h2 className="text-lg font-bold text-[var(--primary)] tracking-tight text-center">WenChang SmartFusion</h2>
+              <p className="text-sm font-medium text-[var(--muted)] text-center">文昌智融平台</p>
             </>
           )}
           <button
