@@ -370,7 +370,7 @@ export default function StudentChatPage() {
   // 话筒页内录音（2026-10-15 需求：点击直接调用麦克风，再点停止，录完作为语音附件）
   const [isRecording, setIsRecording] = useState(false);
   const [recordingSec, setRecordingSec] = useState(0);
-  // 录音直接采集麦克风原始 PCM（Web Audio），不经 MediaRecorder 压缩 —— 原因见 toggleRecording 上方注释
+  // 录音同时走原始 PCM 与 MediaRecorder 两条通道，停止时选有声音的一路 —— 原因见 toggleRecording 上方注释
   const recordingStreamRef = useRef<MediaStream | null>(null);
   const recordingCtxRef = useRef<AudioContext | null>(null);
   const recordingPcmRef = useRef<Float32Array[]>([]);
@@ -829,12 +829,24 @@ export default function StudentChatPage() {
     });
   };
 
-  // ⛔ DO NOT REVERT 回 MediaRecorder + decodeAudioData：
-  // 为什么：旧方案先用 MediaRecorder 录成压缩格式（webm/opus 或 mp4/aac，因设备而异），再用 decodeAudioData 解码转 WAV。
-  //   不少安卓平板自带浏览器「能录不能解」，学生每次录完都提示"录音解析失败"（2026-11-12 平板实测；桌面 Chrome 正常，难以察觉）。
-  // 现状：用 Web Audio 直接采集麦克风原始 PCM（ScriptProcessor），停止时重采样为 16kHz 单声道 WAV，与编解码器无关。
-  //   ScriptProcessor 虽标记为过时，但所有支持 getUserMedia 的浏览器都可用；AudioWorklet 需额外模块文件，暂不采用。
-  // 🔗 RELATED：发送链路与"选择音频文件"共用（pendingAudio = data:audio/wav;base64,...，见 transcodeAudioToWav 注释）。
+  // ⛔ DO NOT REVERT 成单一录音通道（只用 MediaRecorder，或只用原始 PCM）：
+  // 为什么（2026-11-12 两次安卓平板实测，桌面 Chrome 两种都正常，所以很难在电脑上发现）：
+  //   1) MediaRecorder 录成压缩格式后 decodeAudioData 解码 → 平板浏览器「能录不能解」，报"录音解析失败"；
+  //   2) 改为 ScriptProcessor 直接采 PCM → 同一台平板采到的全是 0（库里 3 条语音 peak=0），学生发出去的是 5 秒静音。
+  // 现状：两条通道同时录；停止时先看 PCM 有没有真实声音，有就用；没有再解码 MediaRecorder 的录音；
+  //   两条都没声音则不发送，并在提示里带上诊断信息（PCM 峰值 / 录音格式 / 解码结果），方便定位设备问题。
+  //   AudioContext 必须在点击回调里、await 之前创建（保住用户手势），getUserMedia 用最朴素的 { audio: true }。
+  // 🔗 RELATED：pcmToWavDataUrl（重采样 + WAV 编码）；发送链路与"选择音频文件"共用（pendingAudio = data:audio/wav;base64,...）。
+  const SILENCE_PEAK = 0.003; // 约 -50dBFS，低于此视为没录到声音
+  const peakOf = (pcm: Float32Array) => {
+    let p = 0;
+    for (let i = 0; i < pcm.length; i++) {
+      const v = Math.abs(pcm[i]);
+      if (v > p) p = v;
+    }
+    return p;
+  };
+
   const toggleRecording = async () => {
     // 录音中：点击停止
     if (isRecording) {
@@ -847,7 +859,7 @@ export default function StudentChatPage() {
     //   旧版这里统一提示"请检查浏览器权限设置"，老师按提示查权限查不出问题（2026-11-12 安卓平板实测）。
     // 现状：先判断安全来源，再按 getUserMedia 的错误类型分别提示真实原因。
     // ⛔ DO NOT REVERT 成单一的"检查权限"提示。
-    // 🔗 RELATED：readme.md「Q: 平板（Android）录音提示无法访问麦克风」（chrome://flags 设置步骤）。
+    // 🔗 RELATED：src/lib/https-entry.ts（班级二维码走 HTTPS 入口）；readme.md 录音常见问题。
     if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
       MessagePlugin.error(
         `当前通过 ${window.location.origin} 访问，浏览器禁止非 HTTPS 网页使用麦克风（与权限设置无关）。` +
@@ -859,16 +871,25 @@ export default function StudentChatPage() {
     const AudioCtx =
       window.AudioContext ||
       (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    if (!AudioCtx) {
+    const hasRecorder = typeof MediaRecorder !== "undefined";
+    if (!AudioCtx && !hasRecorder) {
       MessagePlugin.error("当前浏览器不支持录音，请用 Chrome / Edge");
       return;
     }
+    // 在 await 之前创建并唤醒 AudioContext，保住点击手势（安卓上手势过期后 resume 可能无效）
+    let ctx: AudioContext | null = null;
+    try {
+      ctx = AudioCtx ? new AudioCtx() : null;
+      void ctx?.resume();
+    } catch {
+      ctx = null;
+    }
+
     let stream: MediaStream;
     try {
-      stream = await navigator.mediaDevices.getUserMedia({
-        audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
-      });
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch (err) {
+      void ctx?.close();
       const name = (err as { name?: string })?.name || "";
       const msg =
         name === "NotAllowedError" || name === "SecurityError"
@@ -882,78 +903,147 @@ export default function StudentChatPage() {
       return;
     }
 
-    try {
-      const ctx = new AudioCtx();
-      if (ctx.state === "suspended") await ctx.resume();
-      const source = ctx.createMediaStreamSource(stream);
-      const proc = ctx.createScriptProcessor(4096, 1, 1);
-      // 处理节点必须连到输出才会持续回调；用 0 增益避免扬声器回放自己的声音
-      const mute = ctx.createGain();
-      mute.gain.value = 0;
-      recordingPcmRef.current = [];
-      proc.onaudioprocess = (e) => {
-        recordingPcmRef.current.push(new Float32Array(e.inputBuffer.getChannelData(0)));
-      };
-      source.connect(proc);
-      proc.connect(mute);
-      mute.connect(ctx.destination);
-      recordingStreamRef.current = stream;
-      recordingCtxRef.current = ctx;
+    // 通道 A：原始 PCM
+    const cleanups: (() => void)[] = [];
+    recordingPcmRef.current = [];
+    if (ctx) {
+      try {
+        if (ctx.state === "suspended") await ctx.resume();
+        const source = ctx.createMediaStreamSource(stream);
+        const proc = ctx.createScriptProcessor(4096, 1, 1);
+        // 处理节点必须连到输出才会持续回调；用 0 增益避免扬声器回放自己的声音
+        const mute = ctx.createGain();
+        mute.gain.value = 0;
+        proc.onaudioprocess = (e) => {
+          recordingPcmRef.current.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+        };
+        source.connect(proc);
+        proc.connect(mute);
+        mute.connect(ctx.destination);
+        cleanups.push(() => {
+          proc.onaudioprocess = null;
+          try {
+            source.disconnect();
+            proc.disconnect();
+            mute.disconnect();
+          } catch {
+            // 已断开
+          }
+        });
+      } catch {
+        // PCM 通道不可用时仅靠 MediaRecorder
+      }
+    }
 
-      let stopped = false;
-      stopRecordingRef.current = () => {
-        if (stopped) return;
-        stopped = true;
-        stopRecordingRef.current = null;
-        clearRecordingTimer();
-        setIsRecording(false);
-        setRecordingSec(0);
-        proc.onaudioprocess = null;
-        try {
-          source.disconnect();
-          proc.disconnect();
-          mute.disconnect();
-        } catch {
-          // 已断开
-        }
+    // 通道 B：MediaRecorder（压缩格式，停止后再尝试解码）
+    let recorder: MediaRecorder | null = null;
+    const recChunks: Blob[] = [];
+    let recDone: Promise<void> = Promise.resolve();
+    if (hasRecorder) {
+      try {
+        recorder = new MediaRecorder(stream);
+        recorder.ondataavailable = (e) => {
+          if (e.data && e.data.size > 0) recChunks.push(e.data);
+        };
+        const r = recorder;
+        recDone = new Promise<void>((resolve) => {
+          r.onstop = () => resolve();
+          r.onerror = () => resolve();
+        });
+        recorder.start(1000);
+      } catch {
+        recorder = null;
+      }
+    }
+
+    recordingStreamRef.current = stream;
+    recordingCtxRef.current = ctx;
+    const startedAt = Date.now();
+
+    let stopped = false;
+    stopRecordingRef.current = () => {
+      if (stopped) return;
+      stopped = true;
+      stopRecordingRef.current = null;
+      clearRecordingTimer();
+      setIsRecording(false);
+      setRecordingSec(0);
+      cleanups.forEach((fn) => fn());
+      if (recorder && recorder.state !== "inactive") recorder.stop();
+
+      void (async () => {
+        await Promise.race([recDone, new Promise((r) => setTimeout(r, 3000))]);
         stream.getTracks().forEach((t) => t.stop());
         recordingStreamRef.current = null;
-        const rate = ctx.sampleRate;
-        void ctx.close();
-        recordingCtxRef.current = null;
-
-        const chunks = recordingPcmRef.current;
-        recordingPcmRef.current = [];
-        const total = chunks.reduce((n, c) => n + c.length, 0);
-        if (total < rate * 0.5) {
-          MessagePlugin.warning("录音太短，请按住说完一句话再点停止");
-          return;
+        const rate = ctx?.sampleRate || 48000;
+        const diag: string[] = [];
+        try {
+          if (Date.now() - startedAt < 600) {
+            MessagePlugin.warning("录音太短，请说完一句话再点停止");
+            return;
+          }
+          // A：PCM 有声音就直接用
+          const chunks = recordingPcmRef.current;
+          recordingPcmRef.current = [];
+          const total = chunks.reduce((n, c) => n + c.length, 0);
+          if (total > 0) {
+            const pcm = new Float32Array(total);
+            let offset = 0;
+            for (const c of chunks) {
+              pcm.set(c, offset);
+              offset += c.length;
+            }
+            const peak = peakOf(pcm);
+            diag.push(`PCM峰值${peak.toFixed(4)}`);
+            if (peak >= SILENCE_PEAK) {
+              setPendingAudio(await pcmToWavDataUrl(pcm, rate));
+              return;
+            }
+          } else {
+            diag.push("PCM无数据");
+          }
+          // B：解码 MediaRecorder 的录音
+          if (recChunks.length > 0 && ctx) {
+            const blob = new Blob(recChunks, { type: recorder?.mimeType || "audio/webm" });
+            diag.push(`${blob.type || "未知格式"} ${Math.round(blob.size / 1024)}KB`);
+            try {
+              const decoded = await ctx.decodeAudioData(await blob.arrayBuffer());
+              const ch = decoded.getChannelData(0);
+              const peak = peakOf(ch);
+              diag.push(`解码峰值${peak.toFixed(4)}`);
+              if (peak >= SILENCE_PEAK) {
+                setPendingAudio(await pcmToWavDataUrl(new Float32Array(ch), decoded.sampleRate));
+                return;
+              }
+            } catch (e) {
+              diag.push(`解码失败${(e as Error)?.name || ""}`);
+            }
+          } else {
+            diag.push("无压缩录音");
+          }
+          MessagePlugin.error(
+            `没有录到声音，未发送。请确认麦克风没被其他应用占用、说话时靠近平板，或换用 Chrome 浏览器重试。（诊断：${diag.join("，")}）`,
+            12000,
+          );
+        } catch (e) {
+          MessagePlugin.error(`录音处理失败（${(e as Error)?.name || "未知错误"}；${diag.join("，")}），请重试`, 10000);
+        } finally {
+          void ctx?.close();
+          recordingCtxRef.current = null;
         }
-        const pcm = new Float32Array(total);
-        let offset = 0;
-        for (const c of chunks) {
-          pcm.set(c, offset);
-          offset += c.length;
-        }
-        pcmToWavDataUrl(pcm, rate)
-          .then((url) => setPendingAudio(url))
-          .catch((e) => MessagePlugin.error(`录音处理失败（${(e as Error)?.name || "未知错误"}），请重试`));
-      };
+      })();
+    };
 
-      setIsRecording(true);
-      setRecordingSec(0);
-      recordingTimerRef.current = setInterval(() => {
-        setRecordingSec((s) => {
-          const next = s + 1;
-          // 到时自动停止录音
-          if (next >= MAX_RECORD_SEC) stopRecordingRef.current?.();
-          return next;
-        });
-      }, 1000);
-    } catch (e) {
-      stream.getTracks().forEach((t) => t.stop());
-      MessagePlugin.error(`无法启动录音（${(e as Error)?.name || "未知错误"}），请重试`);
-    }
+    setIsRecording(true);
+    setRecordingSec(0);
+    recordingTimerRef.current = setInterval(() => {
+      setRecordingSec((s) => {
+        const next = s + 1;
+        // 到时自动停止录音
+        if (next >= MAX_RECORD_SEC) stopRecordingRef.current?.();
+        return next;
+      });
+    }, 1000);
   };
 
   const removePendingAudio = () => {

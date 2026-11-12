@@ -450,7 +450,11 @@ export async function POST(req: NextRequest) {
               // 400 InternalError.Algo.InvalidParameter: "Range of max tokens should be [1, 32768]"，
               // 原样透传学生看不懂（2026-10-21 课堂实测）→ 必须译成人话并给行动指引。
               // 🔗 RELATED: src/app/api/exploration-activities/[id]/ai-chat/route.ts finally 段有同款分支，两处须同步。
-              errMsg = /max.?tokens|InvalidParameter/i.test(raw)
+              // ⚠️ GOTCHA: 全媒体线路若配成不支持音频的模型（如 DeepSeek），网关报
+              //   "unknown variant `input_audio`"，原样透传学生看不懂（2026-11-12 平板实测）→ 译成人话并告诉老师怎么改。
+              errMsg = hasAudioContent(lastMessage.content) && /input_audio|audio/i.test(raw)
+                ? "当前 AI 模型不支持语音输入。请老师在「系统设置 → AI 服务配置 → 全媒体线路」填写支持语音的模型（如阿里百炼 qwen3.8-omni-flash）；你也可以先改用文字提问。"
+                : /max.?tokens|InvalidParameter/i.test(raw)
                 ? "AI 模型输出上限设置超限，请联系老师，更换 64K 及以上大模型。"
                 : /quota|配额|free|429|rate|limit/i.test(raw)
                 ? "AI 服务繁忙（限流或配额不足），请稍后重试"
