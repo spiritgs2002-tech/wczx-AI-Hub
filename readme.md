@@ -1,8 +1,8 @@
-# 文昌智融平台（Wenchang SmartFusion）使用指南
+# 文昌智融平台（WenChang SmartFusion）使用指南
 
 ## 1. 系统概述
 
-文昌智融平台（Wenchang SmartFusion，代码仓库名 wczx-AI-Hub）是一个 AI 驱动的课堂教学辅助平台，帮助教师创建互动式学习活动、管理课堂作业、分析学情数据。核心功能包括：
+文昌智融平台（WenChang SmartFusion，代码仓库名 wczx-AI-Hub）是一个 AI 驱动的课堂教学辅助平台，帮助教师创建互动式学习活动、管理课堂作业、分析学情数据。核心功能包括：
 
 - **对话活动**：学生与 AI 进行主题对话，深入理解知识点
 - **互动探究**：HTML 交互式学习活动，支持提交和评分

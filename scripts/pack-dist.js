@@ -57,7 +57,7 @@ dirsToCopy.forEach(dir => {
 // 4. 创建 Windows 启动脚本
 fs.writeFileSync(path.join(DIST_DIR, 'start.bat'), `@echo off
 set NODE_ENV=production
-echo Starting Wenchang SmartFusion...
+echo Starting WenChang SmartFusion...
 npm start
 `);
 
@@ -70,7 +70,7 @@ pause
 // 5. 创建 Linux/Mac 启动脚本
 fs.writeFileSync(path.join(DIST_DIR, 'start.sh'), `#!/bin/bash
 export NODE_ENV=production
-echo "Starting Wenchang SmartFusion..."
+echo "Starting WenChang SmartFusion..."
 npm start
 `);
 fs.chmodSync(path.join(DIST_DIR, 'start.sh'), '0o755');

@@ -113,7 +113,7 @@ export default function ForgotPasswordPage() {
         <h1 className="text-2xl font-bold text-center mb-2 text-[#1A1A1A]">
           忘记密码
         </h1>
-        <p className="text-center text-gray-500 mb-8">Wenchang SmartFusion: Student-centric, Class-focused.</p>
+        <p className="text-center text-gray-500 mb-8">WenChang SmartFusion: Student-centric, Class-focused.</p>
 
         {step === "input" && (
           <>

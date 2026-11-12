@@ -84,7 +84,7 @@ export default function StudentLoginPage() {
           学生入口
         </h1>
         <p className="text-center text-gray-500 mb-8">
-          Wenchang SmartFusion
+          WenChang SmartFusion
         </p>
 
         <Form form={form} onSubmit={handleSubmit}>

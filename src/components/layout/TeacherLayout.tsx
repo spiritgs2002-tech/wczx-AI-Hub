@@ -151,7 +151,7 @@ export default function TeacherLayout({
         >
           {!sidebarCollapsed && (
             <>
-              <h2 className="text-lg font-bold text-[var(--primary)] tracking-tight">Wenchang SmartFusion</h2>
+              <h2 className="text-lg font-bold text-[var(--primary)] tracking-tight">WenChang SmartFusion</h2>
               <p className="text-sm font-medium text-[var(--muted)]">文昌智融平台</p>
             </>
           )}

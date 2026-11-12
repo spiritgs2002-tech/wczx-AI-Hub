@@ -175,7 +175,7 @@ export default function RegisterForm() {
         <h1 className="text-xl font-bold text-center mb-1 text-[#1A1A1A]">
           {showImport ? "导入已有账号" : "文昌智融平台用户配置"}
         </h1>
-        <p className="text-center text-gray-400 text-xs mb-5">Wenchang SmartFusion: Student-centric, Class-focused.</p>
+        <p className="text-center text-gray-400 text-xs mb-5">WenChang SmartFusion: Student-centric, Class-focused.</p>
 
         {!showImport ? (
           <div className="space-y-2.5">
