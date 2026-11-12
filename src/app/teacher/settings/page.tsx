@@ -1754,6 +1754,8 @@ export default function TeacherSettingsPage() {
                   { label: "邮箱", value: "spiritgs@qq.com" },
                   { label: "数据库", value: "SQLite (本地文件)" },
                   { label: "访问地址", value: typeof window !== "undefined" ? `${window.location.host}` : "localhost:3000" },
+                  // 本项目基于常州管老师的开源项目 QuickClass 二次开发，此行为原作者致谢 —— DO NOT REMOVE
+                  { label: "致谢", value: "常州管老师" },
                 ].map((item, index) => (
                   <div key={index} className="flex items-center justify-between py-2">
                     <span className="text-sm text-[var(--muted)]">{item.label}</span>
