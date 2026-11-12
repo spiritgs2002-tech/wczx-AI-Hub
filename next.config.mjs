@@ -11,6 +11,19 @@ const nextConfig = {
     // ⛔ DO NOT REVERT: 以前忽略类型错误会造成“构建成功”掩盖错误，修复代码而非关闭检查。
     ignoreBuildErrors: false,
   },
+  // 全站安全响应头
+  // 为什么：学生可上传附件、图片，若浏览器按内容“嗅探”类型，伪装成图片的 HTML 可能被当网页执行（2026-11-11 体检发现）。
+  // 现状：所有响应加 X-Content-Type-Options: nosniff；附件/图片路由自身也设置了同名头（双保险，互不冲突）。
+  // ⛔ DO NOT ADD X-Frame-Options / frame-ancestors here —— 探究页、伴学面板、教师预览依赖同源 iframe 嵌入。
+  // 🔗 RELATED：src/app/api/attachments、src/app/api/images 路由的 nosniff；src/lib/project-submit.ts 扩展名白名单。
+  async headers() {
+    return [
+      {
+        source: "/:path*",
+        headers: [{ key: "X-Content-Type-Options", value: "nosniff" }],
+      },
+    ];
+  },
   experimental: {
     serverActions: {
       bodySizeLimit: "10mb",

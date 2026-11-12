@@ -139,6 +139,8 @@ function rewriteContentText(
   return text;
 }
 
-// Re-export for unit testing
-export { rewriteContentText };
+// ⛔ DO NOT EXPORT rewriteContentText（或任何非 HTTP 方法的值）from this route file.
+// 为什么：Next.js 路由文件只允许导出 GET/POST 等约定字段，多导出一个函数会让 `npm run build` 类型校验失败
+//   （2026-11-12 开启 ignoreBuildErrors:false 后实测构建因此中断）。
+// 维护：若需单测该函数，把它挪到 src/lib/ 下再从两处引入；仅导出类型不受此限制。
 export type { ReferencesAuditReport };
