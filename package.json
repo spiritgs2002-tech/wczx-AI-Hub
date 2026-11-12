@@ -45,6 +45,7 @@
     "remark-breaks": "^4.0.0",
     "remark-gfm": "^4.0.1",
     "remark-math": "^6.0.0",
+    "selfsigned": "2.4.1",
     "sharp": "^0.35.3",
     "tdesign-icons-react": "^0.6.4",
     "tdesign-react": "^1.16.8",

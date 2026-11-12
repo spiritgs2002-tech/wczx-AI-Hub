@@ -33,7 +33,10 @@ const nextConfig = {
     // bufferutil / utf-8-validate。一旦被 webpack 打进 bundle，
     // 这些 native 模块会变成空对象，运行时报 "t.mask is not a function"
     // 且请求会一直挂住不返回。
-    serverComponentsExternalPackages: ["msedge-tts", "ws", "bufferutil", "utf-8-validate"],
+    // selfsigned / node-forge：HTTPS 入口生成自签名证书用，同样保持运行时加载（src/lib/https-entry.ts）。
+    serverComponentsExternalPackages: ["msedge-tts", "ws", "bufferutil", "utf-8-validate", "selfsigned", "node-forge"],
+    // ⛔ DO NOT REMOVE：开启 src/instrumentation.ts 启动钩子，局域网 HTTPS 入口（学生平板录音）靠它启动。
+    instrumentationHook: true,
   },
   webpack: (config, { isServer }) => {
     // 客户端（浏览器）bundle 不允许 Node 内置模块。来源：src/lib/prompts/ai-companion.ts

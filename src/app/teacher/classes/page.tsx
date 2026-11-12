@@ -46,6 +46,9 @@ export default function TeacherClassesPage() {
   // 分享弹窗用：教师在 localhost 打开时，从服务端取本机局域网 IP 供二维码使用
   const [lanIps, setLanIps] = useState<{ ip: string; iface: string }[]>([]);
   const [shareIp, setShareIp] = useState("");
+  // 局域网 HTTPS 入口端口（服务端未启动该入口时为 null，二维码退回 http 地址）
+  const [httpsPort, setHttpsPort] = useState<number | null>(null);
+  const [lanFetched, setLanFetched] = useState(false);
   const [loading, setLoading] = useState(false);
   const [formIsCurrent, setFormIsCurrent] = useState(false);
   const [formOpenInviteCode, setFormOpenInviteCode] = useState(false);
@@ -118,13 +121,18 @@ export default function TeacherClassesPage() {
    * 学生入口完整地址（二维码与复制文本共用，带 ?code= 让学生入口页自动填好邀请码）
    * ⚠️ GOTCHA：教师在 localhost 打开时不能直接用 window.location.origin —— 学生手机扫到 localhost 打不开，
    *   必须换成 /api/system/lan-address 返回的本机局域网 IP；取不到 IP 时返回空串，界面提示手动处理。
-   * 🔗 RELATED：src/app/student/page.tsx 读取 ?code= 预填邀请码；src/app/api/system/lan-address/route.ts。
+   * ⛔ DO NOT REVERT 回 http 地址：服务端开了 HTTPS 入口（httpsPort）时二维码必须用 https://IP:httpsPort ——
+   *   学生平板只有在 HTTPS 下才能用麦克风录音（2026-11-12 安卓平板实测 http 下录音被浏览器禁用）。
+   * 🔗 RELATED：src/app/student/page.tsx 读取 ?code= 预填邀请码；src/app/api/system/lan-address/route.ts；src/lib/https-entry.ts。
    */
   const getStudentEntryUrl = (cls: ClassItem | null) => {
     if (!cls || typeof window === "undefined") return "";
     let origin = window.location.origin;
-    if (isLocalHost()) {
-      if (!shareIp) return "";
+    const host = isLocalHost() ? shareIp : window.location.hostname;
+    if (isLocalHost() && !shareIp) return "";
+    if (httpsPort) {
+      origin = `https://${host}:${httpsPort}`;
+    } else if (isLocalHost()) {
       origin = `${window.location.protocol}//${shareIp}${window.location.port ? ":" + window.location.port : ""}`;
     }
     return `${origin}/student?code=${encodeURIComponent(cls.inviteCode)}`;
@@ -133,7 +141,7 @@ export default function TeacherClassesPage() {
   const handleShare = async (cls: ClassItem) => {
     setShareClass(cls);
     setShareVisible(true);
-    if (!isLocalHost() || lanIps.length > 0) return;
+    if (lanFetched) return;
     try {
       const token = localStorage.getItem("token");
       const res = await fetch("/api/system/lan-address", {
@@ -143,6 +151,8 @@ export default function TeacherClassesPage() {
       const data = await res.json();
       const list: { ip: string; iface: string }[] = data.addresses || [];
       setLanIps(list);
+      setHttpsPort(typeof data.httpsPort === "number" ? data.httpsPort : null);
+      setLanFetched(true);
       if (list.length > 0) setShareIp(list[0].ip);
     } catch {
       // 取不到局域网 IP 时，弹窗会提示教师用局域网地址打开后台再分享
@@ -642,6 +652,11 @@ export default function TeacherClassesPage() {
                 <>
                   <QRCode value={getStudentEntryUrl(shareClass)} size={200} level="M" borderless={false} />
                   <span className="text-xs text-[var(--muted)] break-all text-center">{getStudentEntryUrl(shareClass)}</span>
+                  {httpsPort && (
+                    <span className="text-xs text-[var(--warning)] text-center">
+                      学生首次扫码若提示「您的连接不是私密连接」，点「高级」→「继续访问」即可（开启录音需要）
+                    </span>
+                  )}
                 </>
               ) : (
                 <div className="text-xs text-[var(--warning)] text-center p-3">

@@ -787,8 +787,7 @@ export default function StudentChatPage() {
     if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
       MessagePlugin.error(
         `当前通过 ${window.location.origin} 访问，浏览器禁止非 HTTPS 网页使用麦克风（与权限设置无关）。` +
-          `请在平板 Chrome 打开 chrome://flags/#unsafely-treat-insecure-origin-as-secure，` +
-          `填入 ${window.location.origin}，选 Enabled 并重启浏览器`,
+          `请扫描老师「班级管理 → 分享」里的二维码重新进入（https 地址），首次提示连接不安全时点「高级 → 继续访问」即可录音`,
         15000,
       );
       return;

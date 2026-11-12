@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import os from "os";
 import { verifyToken } from "@/lib/auth";
+import { getHttpsEntry } from "@/lib/https-entry";
 
 // ⛔ DO NOT REMOVE: MUST stay force-dynamic —— 否则构建期会把“打包机”的网卡地址固化进产物。
 export const dynamic = "force-dynamic";
@@ -10,8 +11,9 @@ export const dynamic = "force-dynamic";
  *
  * 为什么需要：教师通常在本机用 http://localhost:3000 打开后台，浏览器拿不到本机局域网 IP，
  *   班级分享弹窗里的二维码 / 分享文本若用 localhost，学生手机扫码根本打不开。
- * 📐 CONTRACT：{ addresses: { ip: string; iface: string }[] }，私网地址（192.168 / 10 / 172.16-31）排前面；
+ * 📐 CONTRACT：{ addresses: { ip: string; iface: string }[]; httpsPort: number | null }，私网地址（192.168 / 10 / 172.16-31）排前面；
  *   已排除回环与 169.254 自动地址。仅教师登录态可调用（Authorization: Bearer）。
+ *   httpsPort：局域网 HTTPS 入口正在监听的端口（未启动为 null），二维码优先用它 —— 学生平板录音必须走 HTTPS，见 src/lib/https-entry.ts。
  * 🔗 RELATED：调用方 src/app/teacher/classes/page.tsx 的分享弹窗（二维码 + 复制分享文本）。
  */
 export async function GET(request: Request) {
@@ -37,5 +39,5 @@ export async function GET(request: Request) {
   }
   addresses.sort((a, b) => Number(isPrivate(b.ip)) - Number(isPrivate(a.ip)));
 
-  return NextResponse.json({ addresses });
+  return NextResponse.json({ addresses, httpsPort: getHttpsEntry()?.port ?? null });
 }
