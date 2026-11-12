@@ -151,7 +151,7 @@ export default function RegisterForm() {
   };
 
   const handleDownloadKey = () => {
-    const content = `wczx-AI-Hub 密码恢复密钥\n手机号: ${phoneForKey}\n密钥: ${recoveryKey}\n\n请妥善保管此文件，用于忘记密码时恢复。`;
+    const content = `文昌智融平台 密码恢复密钥\n手机号: ${phoneForKey}\n密钥: ${recoveryKey}\n\n请妥善保管此文件，用于忘记密码时恢复。`;
     const blob = new Blob([content], { type: "text/plain" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -171,11 +171,11 @@ export default function RegisterForm() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#0052D9] to-[#00A870] flex items-center justify-center py-6">
       <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-md">
-        <p className="text-center text-gray-400 text-xs mb-2">文昌智枢</p>
+        <p className="text-center text-gray-400 text-xs mb-2">文昌智融平台</p>
         <h1 className="text-xl font-bold text-center mb-1 text-[#1A1A1A]">
-          {showImport ? "导入已有账号" : "文昌智枢用户配置"}
+          {showImport ? "导入已有账号" : "文昌智融平台用户配置"}
         </h1>
-        <p className="text-center text-gray-400 text-xs mb-5">wczx-AI-Hub Agent: Student-centric, Class-focused.</p>
+        <p className="text-center text-gray-400 text-xs mb-5">Wenchang SmartFusion: Student-centric, Class-focused.</p>
 
         {!showImport ? (
           <div className="space-y-2.5">

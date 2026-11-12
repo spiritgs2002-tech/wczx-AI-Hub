@@ -29,7 +29,7 @@
 
 ## 1. 项目速览
 
-wczx-AI-Hub（文昌智枢）—— 面向教师/学生的 AI 课堂平台。Web 应用，前后端同仓（Next.js App Router）。
+文昌智融平台（Wenchang SmartFusion，仓库名 wczx-AI-Hub）—— 面向教师/学生的 AI 课堂平台。Web 应用，前后端同仓（Next.js App Router）。
 
 | 项 | 值 |
 |---|---|

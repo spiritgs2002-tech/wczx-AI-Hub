@@ -118,7 +118,7 @@ export async function POST(request: Request) {
       success: true,
       newVersion: result.newVersion,
       changelog: result.changelog,
-      detail: "更新包已就绪，请重启 wczx-AI-Hub 服务（重新运行 start 脚本）自动完成升级",
+      detail: "更新包已就绪，请重启文昌智融平台服务（重新运行 start 脚本）自动完成升级",
     });
   } catch (error) {
     console.error("一键更新失败:", error);

@@ -3,7 +3,7 @@ chcp 65001 >nul
 setlocal enabledelayedexpansion
 
 echo ==========================================
-echo   wczx-AI-Hub 升级工具 (Windows)
+echo   文昌智融平台 升级工具 (Windows)
 echo ==========================================
 echo.
 

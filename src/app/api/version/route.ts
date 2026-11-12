@@ -8,7 +8,7 @@ export async function GET() {
 
     return NextResponse.json({
       version,
-      name: "wczx-AI-Hub",
+      name: "文昌智融平台",
       changelog,
       buildTime: process.env.BUILD_TIME || new Date().toISOString(),
       node: process.version,

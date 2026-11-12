@@ -109,7 +109,7 @@ if [ -z "\$DB_PATH" ]; then
 fi
 
 echo "=========================================="
-echo "   wczx-AI-Hub 启动器 ${version}"
+echo "   文昌智融平台 启动器 ${version}"
 echo "  ${changelog}"
 echo "=========================================="
 echo ""
@@ -222,7 +222,7 @@ if not defined DB_PATH (\r
 )\r
 \r
 echo ========================================\r
-echo   wczx-AI-Hub 启动器 ${version}\r
+echo   文昌智融平台 启动器 ${version}\r
 echo   更新日志见 quickstart.txt\r
 echo ========================================\r
 \r
@@ -329,15 +329,15 @@ fs.writeFileSync(path.join(tmpDir, "stop.sh"), `#!/bin/bash
 PID=$(lsof -ti:3000 2>/dev/null)
 if [ -n "$PID" ]; then
     kill -9 $PID
-    echo "wczx-AI-Hub 已停止"
+    echo "文昌智融平台 已停止"
 else
-    echo "未发现运行中的 wczx-AI-Hub"
+    echo "未发现运行中的文昌智融平台"
 fi
 `, { mode: 0o755 });
 
 // --- 快速上手.txt ---
 const quickstart = `==========================================
-   wczx-AI-Hub 测试版 ${version}
+   文昌智融平台 测试版 ${version}
    ${changelog}
 ==========================================
 
@@ -416,8 +416,8 @@ console.log(`   大小: ${sizeMB} MB`);
 console.log("");
 console.log("📖 使用方式：");
 console.log("   1. 将升级包分发给用户");
-console.log("   2. 用户进入 wczx-AI-Hub → 系统设置 → 系统升级");
+console.log("   2. 用户进入文昌智融平台 → 系统设置 → 系统升级");
 console.log("   3. 上传此 zip 文件");
-console.log("   4. 重启 wczx-AI-Hub 服务");
+console.log("   4. 重启文昌智融平台服务");
 console.log("   5. 启动脚本会自动完成升级（数据库保留）");
 console.log("");

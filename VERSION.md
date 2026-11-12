@@ -1,4 +1,4 @@
-# wczx-AI-Hub 版本说明
+# 文昌智融平台（Wenchang SmartFusion）版本说明
 
 > 当前版本号以 `public/latest.json` 的 `version` 字段为准（设置页、版本检测、升级流程均读取该文件）。
 > 本文件只记录各版本更新历史，不再承担"当前版本号"职责。发布新版时请同步更新 `public/latest.json`，并在下方「更新日志」追加本次记录。

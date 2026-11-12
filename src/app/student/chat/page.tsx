@@ -1075,7 +1075,7 @@ export default function StudentChatPage() {
         {/* 左侧：任务树 */}
         <div className={`${sidebarCollapsed ? 'w-10' : 'w-72'} border-r border-gray-200 flex flex-col bg-[#F7F8FA] transition-all duration-200`}>
           <div className="p-3 border-b border-gray-200 flex items-center justify-between">
-            {!sidebarCollapsed && <h3 className="text-sm font-medium text-[#1A1A1A]">文昌智枢</h3>}
+            {!sidebarCollapsed && <h3 className="text-sm font-medium text-[#1A1A1A]">文昌智融平台</h3>}
             <button
               className="text-gray-400 hover:text-gray-600 text-xs px-1"
               onClick={() => setSidebarCollapsed(!sidebarCollapsed)}

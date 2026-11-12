@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { readVersionInfoFromDir } from "@/lib/version-info";
 
-// 最新版本信息文件地址（文昌智枢自维护仓库 wczx-AI-Hub，main 分支的 public/latest.json；仓库须为公开，私有时客户端匿名读取会失败）
+// 最新版本信息文件地址（文昌智融平台自维护仓库 wczx-AI-Hub，main 分支的 public/latest.json；仓库须为公开，私有时客户端匿名读取会失败）
 // 📐 CONTRACT：升级源仓库 MUST STAY IN SYNC —— 与 src/app/api/upgrade/download/route.ts 的 RELEASE_REPO_URL 指向同一仓库，
 //   否则会出现“检测到新版本，但一键更新下载的是另一个仓库的包”。
 // 维护：发新版 = 在该仓库 main 上提高 public/latest.json 的 version，用户端即可检测到更新。

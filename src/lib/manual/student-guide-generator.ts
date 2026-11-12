@@ -885,7 +885,7 @@ export async function buildStudentGuideDocx(
   // 结尾说明 + 页码
   // ===================================================================
   addParagraph(
-    "说明：本学习手册由 wczx-AI-Hub 依据课堂内容自动生成，供学生课上、课后对照使用。如课堂内容有调整，请重新导出。",
+    "说明：本学习手册由文昌智融平台依据课堂内容自动生成，供学生课上、课后对照使用。如课堂内容有调整，请重新导出。",
     {
       size: SMALL_SIZE,
       italic: true,
@@ -912,7 +912,7 @@ export async function buildStudentGuideDocx(
   });
 
   const docxDoc = new Document({
-    creator: "wczx-AI-Hub",
+    creator: "文昌智融平台",
     title: coverTitle,
     sections: [
       {

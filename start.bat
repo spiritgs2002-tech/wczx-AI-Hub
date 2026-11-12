@@ -1,6 +1,6 @@
 @echo off
 chcp 65001 >nul
-title wczx-AI-Hub 启动器
+title 文昌智融平台 启动器
 cd /d "%~dp0"
 
 rem 将本地 node_modules\.bin 加入 PATH，避免 npx 去仓库拉最新预发布版
@@ -17,7 +17,7 @@ set "PRISMA_ENGINES_MIRROR=https://registry.npmmirror.com/-/binary/prisma"
 setlocal enabledelayedexpansion
 
 echo ========================================
-echo   wczx-AI-Hub 启动器 v2026.09.09
+echo   文昌智融平台 启动器 v2026.09.09
 echo   指南见 readme.md / 安装指南.md
 echo ========================================
 

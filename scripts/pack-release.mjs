@@ -97,7 +97,7 @@ set "npm_config_registry=https://registry.npmmirror.com"\r
 set "PRISMA_ENGINES_MIRROR=https://registry.npmmirror.com/-/binary/prisma"\r
 \r
 echo ========================================\r
-echo   wczx-AI-Hub 启动器 ${version}\r
+echo   文昌智融平台 启动器 ${version}\r
 echo   使用指南见 使用指南.md\r
 echo ========================================\r
 \r
@@ -220,8 +220,8 @@ console.log('  start.bat 已生成（UTF-8 + CRLF，chcp 65001 保证中文显�
 console.log('[2/5] 生成 start.sh...');
 
 const startSh = `#!/bin/bash
-# wczx-AI-Hub 启动脚本 (macOS/Linux)
-# wczx-AI-Hub 启动器 ${version}
+# 文昌智融平台 启动脚本 (macOS/Linux)
+# 文昌智融平台 启动器 ${version}
 
 set -e
 
@@ -232,7 +232,7 @@ export npm_config_registry="https://registry.npmmirror.com"
 export PRISMA_ENGINES_MIRROR="https://registry.npmmirror.com/-/binary/prisma"
 
 echo "========================================"
-echo "  wczx-AI-Hub 启动器 ${version}"
+echo "  文昌智融平台 启动器 ${version}"
 echo "  使用指南见 使用指南.md"
 echo "========================================"
 
@@ -331,9 +331,9 @@ const stopSh = `#!/bin/bash
 PID=$(lsof -ti:3000 2>/dev/null)
 if [ -n "$PID" ]; then
     kill -9 $PID
-    echo "wczx-AI-Hub 已停止"
+    echo "文昌智融平台 已停止"
 else
-    echo "未发现运行中的 wczx-AI-Hub"
+    echo "未发现运行中的文昌智融平台"
 fi
 `;
 

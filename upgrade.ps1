@@ -1,4 +1,4 @@
-# wczx-AI-Hub 升级脚本 (PowerShell)
+# 文昌智融平台 升级脚本 (PowerShell)
 # 用法: .\upgrade.ps1 -ZipPath "C:\Downloads\wczx-ai-hub-test-v20260721.zip"
 
 param(
@@ -7,7 +7,7 @@ param(
 )
 
 Write-Host "==========================================" -ForegroundColor Cyan
-Write-Host "  wczx-AI-Hub 升级工具 (PowerShell)" -ForegroundColor Cyan
+Write-Host "  文昌智融平台 升级工具 (PowerShell)" -ForegroundColor Cyan
 Write-Host "==========================================" -ForegroundColor Cyan
 Write-Host ""
 

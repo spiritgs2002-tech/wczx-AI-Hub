@@ -57,10 +57,10 @@ export default function LoginPage() {
             教师端
           </span>
           <h1 className="text-3xl font-bold text-[#0052D9] mb-1">
-            wczx-AI-Hub Agent
+            Wenchang SmartFusion
           </h1>
           <p className="text-xl font-semibold text-gray-800 mb-2">
-            文昌智枢
+            文昌智融平台
           </p>
           <p className="text-gray-500 text-sm">Student-centric, Class-focused.</p>
         </div>

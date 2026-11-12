@@ -1259,7 +1259,7 @@ export async function generateManualDocx(
     addMultilineBody("【学生反馈应对】", activity.feedback, COLOR_ACCENT);
 
     if (activity.wczx_ai_hub_guide) {
-      addOperationsBlock("▶ 操作要点（wczx-AI-Hub）", activity.wczx_ai_hub_guide);
+      addOperationsBlock("▶ 操作要点（文昌智融平台）", activity.wczx_ai_hub_guide);
     }
 
     // 本活动涉及的题目
@@ -1290,7 +1290,7 @@ export async function generateManualDocx(
   addH1("三、课堂作业设计");
   if (total === 0) {
     addBody(
-      "本课未配置课堂作业题目。如需检测学习效果，可在 wczx-AI-Hub 平台的课堂中补充课堂作业活动后重新生成本手册。",
+      "本课未配置课堂作业题目。如需检测学习效果，可在文昌智融平台的课堂中补充课堂作业活动后重新生成本手册。",
       { italic: true, color: COLOR_HINT, indent: true }
     );
   }
@@ -1408,7 +1408,7 @@ export async function generateManualDocx(
       if (b.goal) addLabelBody("【活动目标】", b.goal);
       if (b.content) addMultilineBody("【活动内容】", b.content);
       if (b.wczx_ai_hub_guide) {
-        addOperationsBlock("▶ 操作要点（wczx-AI-Hub）", b.wczx_ai_hub_guide);
+        addOperationsBlock("▶ 操作要点（文昌智融平台）", b.wczx_ai_hub_guide);
       }
       if (bi < backup.length - 1) addDots();
     });
@@ -1417,7 +1417,7 @@ export async function generateManualDocx(
 
   // 末尾说明
   addParagraph(
-    "说明：本教学手册由 wczx-AI-Hub 课堂 JSON 自动生成，教学目标按学科核心素养描写，教学流程依据课堂中配置的四类活动逐条生成，教师可根据实际学情灵活调整。",
+    "说明：本教学手册由文昌智融平台课堂 JSON 自动生成，教学目标按学科核心素养描写，教学流程依据课堂中配置的四类活动逐条生成，教师可根据实际学情灵活调整。",
     {
       size: SMALL_SIZE,
       italic: true,
@@ -1445,7 +1445,7 @@ export async function generateManualDocx(
   });
 
   const docxDoc = new Document({
-    creator: "wczx-AI-Hub",
+    creator: "文昌智融平台",
     title: coverTitle,
     sections: [
       {

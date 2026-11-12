@@ -42,7 +42,7 @@ cp next.config.mjs dist/
 cat > dist/run.sh << 'SCRIPT'
 #!/bin/bash
 echo "===================================="
-echo "  wczx-AI-Hub 启动器"
+echo "  文昌智融平台 启动器"
 echo "===================================="
 echo ""
 

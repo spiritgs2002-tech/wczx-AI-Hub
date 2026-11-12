@@ -57,7 +57,7 @@ dirsToCopy.forEach(dir => {
 // 4. 创建 Windows 启动脚本
 fs.writeFileSync(path.join(DIST_DIR, 'start.bat'), `@echo off
 set NODE_ENV=production
-echo Starting wczx-AI-Hub...
+echo Starting Wenchang SmartFusion...
 npm start
 `);
 
@@ -70,13 +70,13 @@ pause
 // 5. 创建 Linux/Mac 启动脚本
 fs.writeFileSync(path.join(DIST_DIR, 'start.sh'), `#!/bin/bash
 export NODE_ENV=production
-echo "Starting wczx-AI-Hub..."
+echo "Starting Wenchang SmartFusion..."
 npm start
 `);
 fs.chmodSync(path.join(DIST_DIR, 'start.sh'), '0o755');
 
 // 6. 创建 README
-fs.writeFileSync(path.join(DIST_DIR, 'README.txt'), `wczx-AI-Hub 分发包
+fs.writeFileSync(path.join(DIST_DIR, 'README.txt'), `文昌智融平台 分发包
 ===================
 
 使用方法：

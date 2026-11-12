@@ -1,6 +1,6 @@
 #!/bin/bash
-# wczx-AI-Hub 启动脚本 (macOS/Linux)
-# wczx-AI-Hub 启动器 v2026.09.09
+# 文昌智融平台 启动脚本 (macOS/Linux)
+# 文昌智融平台 启动器 v2026.09.09
 
 set -e
 
@@ -17,7 +17,7 @@ export npm_config_registry="https://registry.npmmirror.com"
 export PRISMA_ENGINES_MIRROR="https://registry.npmmirror.com/-/binary/prisma"
 
 echo "========================================"
-echo "  wczx-AI-Hub 启动器 v2026.09.09"
+echo "  文昌智融平台 启动器 v2026.09.09"
 echo "  指南见 安装指南.md / readme.md"
 echo "========================================"
 
