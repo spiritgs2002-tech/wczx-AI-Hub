@@ -15,6 +15,7 @@ import {
 } from "tdesign-icons-react";
 import TeacherLayout from "@/components/layout/TeacherLayout";
 import TemplatePreviewButton from "@/components/template/TemplatePreviewButton";
+import { starterTemplates } from "@/lib/starter-templates";
 
 interface AnalysisTemplate {
   id: string;
@@ -334,12 +335,14 @@ export default function TemplateSettingsPage() {
     fetchTemplates();
   }, [fetchTemplates]);
 
-  // 打开新增弹窗
+  // 📐 CONTRACT: 新建时只预填可编辑范本，保存前不写库，也不修改既有模板。
+  // 🔗 RELATED: src/lib/starter-templates.ts、下方类别切换；范本默认对应文本型课堂级。
+  // ⛔ DO NOT REVERT: 切换类别时仅替换未修改的范本，避免丢失教师输入。
   const openAddDialog = (type: "student" | "class" | "conversation" | "QUIZ_DESIGN" | "QUIZ_ANALYSIS" | "EXPLORATION_ANALYSIS") => {
     setEditingTemplate(null);
     setEditType(type);
-    setEditName("");
-    setEditContent("");
+    setEditName(starterTemplates[type].name);
+    setEditContent(starterTemplates[type].content);
     setEditIsDefault(false);
     // 重置 AI 生成状态，避免上一次弹窗的意图/快照/警告串场
     setAiIntent("");
@@ -1174,7 +1177,14 @@ export default function TemplateSettingsPage() {
                   </label>
                   <select
                     value={editType}
-                    onChange={(e) => setEditType(e.target.value as "student" | "class" | "conversation" | "QUIZ_DESIGN" | "QUIZ_ANALYSIS" | "EXPLORATION_ANALYSIS")}
+                    onChange={(e) => {
+                      const nextType = e.target.value as AnalysisTemplate["type"];
+                      if (!editingTemplate) {
+                        if (editName === starterTemplates[editType].name) setEditName(starterTemplates[nextType].name);
+                        if (editContent === starterTemplates[editType].content) setEditContent(starterTemplates[nextType].content);
+                      }
+                      setEditType(nextType);
+                    }}
                     className="w-full px-2 py-1.5 border border-[var(--card-border)] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)] focus:border-transparent"
                   >
                     <option value="conversation">学生对话设计模板</option>
@@ -1201,6 +1211,9 @@ export default function TemplateSettingsPage() {
 
               {editingTemplate && editingTemplate.type !== editType && (
                 <p className="text-xs text-[var(--warning)]">注意：修改类别后，使用该模板的任务需要重新选择模板</p>
+              )}
+              {!editingTemplate && (editType === "student" || editType === "class") && (
+                <p className="text-xs text-[var(--muted-light)]">预填范本适用于课堂级文本报告；选择对话活动级时，请删除作业和探究数据及相关要求。</p>
               )}
 
               <div>
