@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireTeacher } from "@/lib/api-auth";
 import { prisma } from "@/lib/prisma";
 import { createTeacherBackupArchive } from "@/lib/teacher-backup-create";
+import { inspectTeacherBackup } from "@/lib/teacher-backup-inspect";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,6 +20,10 @@ export async function POST(req: Request) {
     const teachers = await prisma.user.findMany({ where: { role: "TEACHER" }, select: { id: true } });
     if (teachers.length !== 1 || teachers[0].id !== auth.userId) return NextResponse.json({ error: "完整备份仅支持当前单教师部署" }, { status: 403 });
     const { encrypted, createdAt } = await createTeacherBackupArchive(password);
+    // MUST VERIFY BEFORE DOWNLOAD: 备份快照可能引用已丢失的附件；只在完整预检通过后交付。
+    // 🔗 RELATED: teacher-backup-inspect.ts、teacher-safety-backup.ts。
+    // ⛔ DO NOT REVERT: 不能让教师收到缺失附件却显示成功的备份。
+    await inspectTeacherBackup(encrypted, password);
     return new Response(new Uint8Array(encrypted), { headers: { "Content-Type": "application/octet-stream", "Cache-Control": "no-store", "Content-Disposition": `attachment; filename="wczx-backup-${createdAt.replace(/[:.]/g, "-")}.wczx"` } });
   } catch (error) {
     console.error("[teacher-data-export]", error);
