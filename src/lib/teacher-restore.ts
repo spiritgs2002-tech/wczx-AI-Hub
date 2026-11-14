@@ -106,6 +106,11 @@ export async function restoreTeacherBackup(buffer: Buffer, password: string, tea
     let journalWritten = false;
     const client = new PrismaClient();
     try {
+      // MUST SET TIMEOUT BEFORE TRANSACTION: BEGIN 也可能等待 SQLite 锁，事务内部设置为时已晚。
+      // 📐 CONTRACT: 恢复连接与常规连接保持 5000ms busy_timeout；事务依然执行外键校验。
+      // 🔗 RELATED: src/lib/prisma.ts、下方交互事务；⛔ DO NOT REVERT: 短暂锁竞争不应立即失败。
+      await client.$connect();
+      await client.$queryRawUnsafe("PRAGMA busy_timeout = 5000");
       const zip = new AdmZip(await decryptTeacherBackup(buffer, password));
       fs.mkdirSync(INCOMING, { mode: 0o700 });
       writeDurable(DATABASE, zip.getEntry("database.sqlite")!.getData());
@@ -145,7 +150,7 @@ export async function restoreTeacherBackup(buffer: Buffer, password: string, tea
         const errors = await tx.$queryRawUnsafe<unknown[]>("PRAGMA foreign_key_check");
         if (errors.length) throw new Error("恢复后的数据关联检查失败");
         await tx.$executeRawUnsafe(`PRAGMA user_version = ${after}`);
-      }, { timeout: 120000 });
+      }, { maxWait: 10000, timeout: 120000 });
       await client.$disconnect();
       await recoverInterruptedTeacherRestore();
       return { restored: true };

@@ -37,12 +37,16 @@ export function deleteImageFile(groupId: string, filename: string) {
 /** 读取图片物理文件内容（读图 API 用），不存在返回 null */
 export function readImageFile(groupId: string, filename: string): Buffer | null {
   const p = path.join(IMAGE_LIBRARY_DIR, groupId, filename);
-  try {
+  // MUST TRACK FILE READS: 恢复切换目录时读图片不能落入目录不存在的短暂窗口。
+  // 📐 CONTRACT: 普通缺失仍返回 null；维护期间的访问锁错误向调用方传播。
+  // 🔗 RELATED: teacher-restore-lock.ts、图片读取 API。
+  // ⛔ DO NOT REVERT: 恢复必须等待正在读取的图片，避免短暂误报 404。
+  return withTrackedFileAccess(() => { try {
     if (!fs.existsSync(p)) return null;
     return fs.readFileSync(p);
   } catch {
     return null;
-  }
+  } });
 }
 
 /**

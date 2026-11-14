@@ -6,6 +6,7 @@ import { starterTemplates } from "@/lib/starter-templates";
 import { seedInitialClass } from "@/../prisma/seed-initial";
 
 export async function POST(req: NextRequest) {
+  let accountCreated = false;
   try {
     // 本地部署只允许一个教师账号
     const teacherCount = await prisma.user.count({ where: { role: "TEACHER" } });
@@ -73,6 +74,7 @@ export async function POST(req: NextRequest) {
       await seedInitialClass(tx, created.id);
       return created;
     });
+    accountCreated = true;
 
     // ⛔ DO NOT ADD BACK：不向任何第三方站点同步教师个人信息（原注释掉的 maoyouhui.org sync-user / check-phone 已于 2026-11-11 删除）
 
@@ -96,6 +98,12 @@ export async function POST(req: NextRequest) {
       recoveryKey: (recoveryQuestion && recoveryAnswer) ? keyToken : null,
     });
   } catch (error) {
+    // MUST REPORT RESTORE RACE: 注册事务可能提交后才遇到维护锁，恢复完成后的账号状态须重新核实。
+    // 📐 CONTRACT: 仅此场景返回 503，不承诺账号一定保留；🔗 RELATED: teacher-restore-lock.ts、auth.ts。
+    // ⛔ DO NOT REVERT: 不能把已提交但未签发令牌的场景误报成普通注册失败。
+    if (accountCreated && error instanceof Error && error.message.includes("系统正在恢复数据")) {
+      return NextResponse.json({ error: "注册期间系统进入恢复，请恢复完成后尝试登录；若无法登录请联系管理员" }, { status: 503 });
+    }
     console.error("Register error:", error);
     return NextResponse.json({ error: "注册失败" }, { status: 500 });
   }

@@ -80,7 +80,7 @@ export default function TeacherDataBackupCard() {
   return (
     <section className="bg-white rounded-xl shadow-sm border border-[var(--card-border)] px-6 py-5">
       <h2 className="font-medium text-[var(--foreground)]">教师数据加密备份</h2>
-      <p className="mt-2 text-sm text-[var(--muted)]">备份包含课堂、学生数据、知识库、API 配置和上传文件。请妥善保存备份密码。</p>
+      <p className="mt-2 text-sm text-[var(--muted)]">备份包含课堂、学生数据、知识库、API 配置和上传文件。建议使用 12 位以上、难以猜测的密码，并妥善保存。</p>
       <p className="mt-1 text-sm text-[var(--muted)]">备份或恢复期间请暂停课堂、学生登录和文件上传。恢复前会自动备份当前数据。</p>
       <div className="mt-4 flex flex-wrap items-center gap-3">
         <input type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="设置备份密码（至少 8 位）" aria-label="备份密码" className="border border-[var(--card-border)] rounded-lg px-3 py-2 text-sm" />

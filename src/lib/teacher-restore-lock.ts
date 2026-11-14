@@ -57,8 +57,13 @@ export async function waitForTrackedDataAccess(): Promise<void> {
       const stat = fs.lstatSync(dir);
       if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error("数据访问锁目录不安全");
       for (const item of fs.readdirSync(dir)) {
+        // MUST IGNORE ONLY KNOWN OS METADATA: Finder/Windows 元数据不是访问标记；未知文件仍需阻止恢复。
+        // 📐 CONTRACT: 只允许精确的系统文件名，不跳过其他隐藏文件。
+        // 🔗 RELATED: begin() 标记命名规则与恢复期间跨进程等待。
+        // ⛔ DO NOT REVERT: 忽略所有未知文件可能漏掉活跃写入，导致恢复前备份不完整。
+        if (item === ".DS_Store" || item === "Thumbs.db" || item === "desktop.ini") continue;
         const match = /^(\d+)-[a-f0-9]{24}\.active$/.exec(item);
-        if (!match) throw new Error("数据访问锁目录存在未知文件，无法安全恢复");
+        if (!match) throw new Error("数据访问锁目录存在未知文件，已停止恢复；请联系管理员检查 .teacher-active 目录");
         const pid = Number(match[1]);
         try { process.kill(pid, 0); remaining++; }
         catch (error) {
@@ -68,7 +73,7 @@ export async function waitForTrackedDataAccess(): Promise<void> {
       }
     }
     if (!remaining) return;
-    if (Date.now() >= deadline) throw new Error("仍有数据库或文件操作未完成，请停止其他操作后重试");
+    if (Date.now() >= deadline) throw new Error("仍有数据库或文件操作未完成（已等待 30 秒），请稍后重试；如持续发生，请联系管理员检查服务进程");
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
 }

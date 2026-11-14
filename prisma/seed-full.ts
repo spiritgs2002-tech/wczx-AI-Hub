@@ -48,6 +48,10 @@ export async function seedSystemConfig() {
  * 由 npm run db:seed 调用，或由新教师注册时通过 prisma/seed-demo.ts 间接调用
  */
 export async function seedTeacherData(teacherId: string, teacherName: string, includeTemplates = true) {
+  // MUST RESTRICT TO DEMO USE: 历史演示数据包含 123456 弱密码账号，不得用于生产初始化。
+  // 📐 CONTRACT: 正式首次注册使用 seed-initial.ts；此函数仅供显式开发演示流程。
+  // 🔗 RELATED: prisma/seed-demo.ts、src/app/api/auth/register/route.ts。
+  // ⛔ DO NOT REVERT: 避免未来把含弱密码的演示账号重新接入生产注册。
   console.log(`开始同步教师 [${teacherName}] 的专属数据...`);
 
   const hashedPassword = await bcrypt.hash("123456", 10);
