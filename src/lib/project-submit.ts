@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import { withTrackedFileAccess } from "./teacher-restore-lock";
 
 // 项目提交附件存储目录
 export const UPLOAD_DIR = path.join(process.cwd(), "uploads", "student-projects");
@@ -26,9 +27,9 @@ export const CATEGORY_ALLOWED: Record<string, { ext: string[]; mime: string[] }>
 };
 
 export function ensureUploadDir() {
-  if (!fs.existsSync(UPLOAD_DIR)) {
-    fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-  }
+  // MUST BLOCK RESTORE: 防止文件写入与数据库恢复交错；🔗 RELATED: teacher-restore-lock.ts。
+  // ⛔ DO NOT REVERT: 恢复期间创建目录会破坏附件回滚。
+  withTrackedFileAccess(() => { if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true }); });
 }
 
 // 清理目录/文件名中的非法字符
@@ -98,14 +99,14 @@ export async function saveUploadedFile(
       sanitizeName(hierarchy.className),
     ].join("/");
     const fullDir = path.join(UPLOAD_DIR, subDir);
-    fs.mkdirSync(fullDir, { recursive: true });
+    withTrackedFileAccess(() => fs.mkdirSync(fullDir, { recursive: true }));
     storedName = `${subDir}/${sanitizeName(hierarchy.studentName)}_${timestamp}-${random}.${ext}`;
   } else {
     storedName = `${timestamp}-${random}.${ext}`;
   }
 
   const buffer = Buffer.from(await file.arrayBuffer());
-  fs.writeFileSync(path.join(UPLOAD_DIR, storedName), buffer);
+  withTrackedFileAccess(() => fs.writeFileSync(path.join(UPLOAD_DIR, storedName), buffer));
   return {
     storedName,
     originalName: file.name,
@@ -118,9 +119,9 @@ export async function saveUploadedFile(
 export function deleteAttachmentFile(storedName: string) {
   if (!storedName) return;
   const p = path.join(UPLOAD_DIR, storedName);
-  try {
+  withTrackedFileAccess(() => { try {
     if (fs.existsSync(p)) fs.unlinkSync(p);
   } catch (e) {
     console.error("删除附件文件失败:", storedName, e);
-  }
+  } });
 }

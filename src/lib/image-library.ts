@@ -1,45 +1,52 @@
 import fs from "fs";
 import path from "path";
 import { prisma } from "@/lib/prisma";
+import { withTrackedFileAccess } from "./teacher-restore-lock";
 
 // 图片库物理存储目录：uploads/image-library/{groupId}/{cuid}.{ext}
 export const IMAGE_LIBRARY_DIR = path.join(process.cwd(), "uploads", "image-library");
 
 export function ensureGroupDir(groupId: string): string {
+  // MUST BLOCK RESTORE: 文件修改必须与数据库恢复互斥；🔗 RELATED: teacher-restore-lock.ts。
+  // ⛔ DO NOT REVERT: 并发删改会让恢复后的图片和数据库不一致。
   const dir = path.join(IMAGE_LIBRARY_DIR, groupId);
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  withTrackedFileAccess(() => { if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true }); });
   return dir;
 }
 
 /** 删除整个图片组的物理目录（删组时调用，忽略不存在） */
 export function deleteGroupDir(groupId: string) {
   const dir = path.join(IMAGE_LIBRARY_DIR, groupId);
-  try {
+  withTrackedFileAccess(() => { try {
     if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true });
   } catch (e) {
     console.error("删除图片组目录失败:", groupId, e);
-  }
+  } });
 }
 
 /** 删除单张图片物理文件（删图时调用，忽略不存在） */
 export function deleteImageFile(groupId: string, filename: string) {
   const p = path.join(IMAGE_LIBRARY_DIR, groupId, filename);
-  try {
+  withTrackedFileAccess(() => { try {
     if (fs.existsSync(p)) fs.unlinkSync(p);
   } catch (e) {
     console.error("删除图片文件失败:", filename, e);
-  }
+  } });
 }
 
 /** 读取图片物理文件内容（读图 API 用），不存在返回 null */
 export function readImageFile(groupId: string, filename: string): Buffer | null {
   const p = path.join(IMAGE_LIBRARY_DIR, groupId, filename);
-  try {
+  // MUST TRACK FILE READS: 恢复切换目录时读图片不能落入目录不存在的短暂窗口。
+  // 📐 CONTRACT: 普通缺失仍返回 null；维护期间的访问锁错误向调用方传播。
+  // 🔗 RELATED: teacher-restore-lock.ts、图片读取 API。
+  // ⛔ DO NOT REVERT: 恢复必须等待正在读取的图片，避免短暂误报 404。
+  return withTrackedFileAccess(() => { try {
     if (!fs.existsSync(p)) return null;
     return fs.readFileSync(p);
   } catch {
     return null;
-  }
+  } });
 }
 
 /**

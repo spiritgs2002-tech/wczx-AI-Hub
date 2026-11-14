@@ -1,4 +1,5 @@
 import { PrismaClient } from "@prisma/client";
+import { withTrackedDataAccess } from "./teacher-restore-lock";
 
 // MUST INITIALIZE SQLITE BEFORE QUERIES: 开发与生产均使用 SQLite；短暂写锁最多等待 5000ms。
 // 📐 CONTRACT: 初始化失败必须阻止查询；普通查询、原始 SQL、两种事务入口共用同一个初始化 Promise。
@@ -28,15 +29,20 @@ function createPrismaClient(): PrismaClient {
     if (params.action === "queryRaw" && params.args?.[0] === busyTimeoutPragma) {
       return next(params);
     }
-    await initialize();
-    return next(params);
+    // MUST BLOCK DURING RESTORE: 非恢复请求不能在数据库和上传目录切换时访问数据。
+    // 📐 CONTRACT: 恢复上下文自身仍可生成自动备份；🔗 RELATED: teacher-restore-lock.ts。
+    // ⛔ DO NOT REVERT: 并发写入会落在备份之外并造成数据丢失。
+    return withTrackedDataAccess(async () => {
+      await initialize();
+      return next(params);
+    });
   });
   client.$connect = initialize;
 
   // MUST INITIALIZE BEFORE OPENING A TRANSACTION: 事务先占住 SQLite 连接再等待 PRAGMA 会造成自锁。
   const transaction = client.$transaction.bind(client) as (...args: unknown[]) => Promise<unknown>;
   client.$transaction = ((...args: unknown[]) =>
-    initialize().then(() => transaction(...args))) as PrismaClient["$transaction"];
+    withTrackedDataAccess(async () => { await initialize(); return transaction(...args); })) as PrismaClient["$transaction"];
   client.$disconnect = async () => {
     await disconnect();
     initialized = undefined;

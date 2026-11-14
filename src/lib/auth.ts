@@ -77,10 +77,21 @@ async function currentFingerprint(userId: string): Promise<string | null> {
   return user ? passwordFingerprint(user.password) : null;
 }
 
+// MUST INVALIDATE TOKENS AFTER RESTORE: 恢复数据库可能带回同一账号及密码，密码指纹无法区分恢复前的旧令牌。
+// 📐 CONTRACT: SQLite user_version 是恢复代次；旧版令牌仅在代次为 0 时兼容。
+// 🔗 RELATED: src/lib/teacher-restore.ts 的事务标记与中断恢复；变更时同步检查所有登录入口。
+// ⛔ DO NOT REVERT: 恢复后不能让导入前的会话继续访问恢复出的学生与教师数据。
+async function currentRestoreEpoch(): Promise<number> {
+  const { prisma } = await import("@/lib/prisma");
+  const rows = await prisma.$queryRawUnsafe<Array<{ user_version: bigint | number }>>("PRAGMA user_version");
+  return Number(rows[0]?.user_version ?? 0);
+}
+
 export async function createToken(payload: Record<string, unknown>) {
   const userId = payload.userId ? String(payload.userId) : "";
   const pv = userId ? await currentFingerprint(userId) : null;
-  return new SignJWT({ ...payload, ...(pv ? { pv } : {}) })
+  const restoreEpoch = await currentRestoreEpoch();
+  return new SignJWT({ ...payload, ...(pv ? { pv } : {}), restoreEpoch })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
     .setExpirationTime("7d")
@@ -93,6 +104,8 @@ export async function verifyToken(token: string) {
     // ⛔ 带 purpose 的令牌只能用于特定用途，一律不得当作登录令牌（防御性校验，DO NOT REMOVE）
     if (payload.purpose) return null;
     if (!payload.userId) return null;
+    const restoreEpoch = await currentRestoreEpoch();
+    if (Number(payload.restoreEpoch ?? 0) !== restoreEpoch) return null;
     const pv = await currentFingerprint(String(payload.userId));
     if (!pv || payload.pv !== pv) return null;
     return payload;

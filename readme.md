@@ -1596,3 +1596,22 @@ SheetJS 使用[官方安装说明](https://docs.sheetjs.com/docs/getting-started
 - 交付要求 `npx tsc --noEmit` **0 错误**，以及 `npx prisma generate && npm run build` 成功。`typescript.ignoreBuildErrors` 必须保持 false，ESLint 维持现状。
 
 完整操作见 [Git 协作完整指南](Git协作完整指南.md)；AI 开工前完整阅读 [AGENTS.md](AGENTS.md)。
+
+---
+
+## 教师数据加密备份与恢复
+
+<!-- MUST PRESERVE RECOVERY CONTRACT: 全量备份包含数据库和上传文件；恢复须先完成预检和自动备份。 -->
+<!-- 📐 CONTRACT: 恢复会替换整个单教师部署的数据，并使原有登录状态失效。 -->
+<!-- 🔗 RELATED: src/components/settings/TeacherDataBackupCard.tsx、src/lib/teacher-restore.ts、src/lib/teacher-safety-backup.ts、src/instrumentation.ts。 -->
+<!-- ⛔ DO NOT REVERT: 禁止绕过维护锁、校验或恢复日志；格式变化须同步预检和兼容测试。 -->
+
+在教师端「系统设置 → 教师数据加密备份」中设置至少 8 位密码并导出。备份包含数据库中的账号、课堂、学情、模板、知识库和 API 配置，以及 `uploads/` 内的附件和图片。请安全保存备份文件和密码；密码遗失后无法解密。当前仅支持单教师部署，备份内容最大 512 MB，并要求恢复时数据库结构与备份版本一致。
+
+新备份使用 scrypt（N=131072、r=8、p=1）与 AES-256-GCM 加密，仍可读取旧版备份；建议使用 12 位以上且难以猜测的密码。密钥派生每次约需 128 MiB 内存，任务较多时可能需要等待，超出排队上限需稍后重试。
+
+恢复时先选择备份、输入密码并校验；确认恢复前请让所有教师和学生暂停操作。确认后，系统会使用同一个密码把当前数据加密备份到服务器项目目录的 `.teacher-backups/`，再替换数据；恢复成功后请使用备份中的教师账号重新登录。该自动备份不随浏览器下载，请按需另行安全保存。恢复期间请勿启动升级或在命令行直接修改数据库、上传目录。
+
+恢复期间如果服务中断，系统下次启动时会根据恢复日志和数据库事务状态完成回退或清理。若日志损坏、状态无法判定或遇到其他进程仍在恢复，服务会阻止继续启动，保留现场以便管理员检查。请勿手动删除 `.teacher-restore/`、`.teacher-active/` 或自动备份来绕过检查。Windows 的 Node.js 不支持目录级 fsync，因此突然断电时文件系统的持久化仍取决于系统和磁盘；正常进程中断的恢复路径不受此限制。
+
+备份和预检会在系统临时目录建立仅当前系统账号可访问的数据库临时副本，正常结束后会删除；若进程被强制终止，临时副本可能残留。服务器管理员应保护系统临时目录，并在确认没有备份或预检运行时清理残留的 `wczx-export-*` 和 `wczx-preview-*` 目录。

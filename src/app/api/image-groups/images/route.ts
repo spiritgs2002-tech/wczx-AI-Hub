@@ -60,7 +60,11 @@ export async function POST(req: NextRequest) {
     const filename = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}.${ext}`;
     const fs = await import("fs");
     const path = await import("path");
-    fs.writeFileSync(path.join(dir, filename), buffer);
+    // MUST BLOCK RESTORE: 动态导入期间可能开始恢复，落盘前必须再次检查。
+    // 🔗 RELATED: src/lib/teacher-restore-lock.ts、src/lib/image-library.ts。
+    // ⛔ DO NOT REVERT: 否则图片可能被写入正在替换的目录。
+    const { withTrackedFileAccess } = await import("@/lib/teacher-restore-lock");
+    withTrackedFileAccess(() => fs.writeFileSync(path.join(dir, filename), buffer));
 
     // 描述：教师已填优先；否则用全局 AI 模型自动生成（失败留空）
     let description = manualDescription.trim();

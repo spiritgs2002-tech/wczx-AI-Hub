@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Button, Input, MessagePlugin, Switch, Radio } from "tdesign-react";
 import TeacherLayout from "@/components/layout/TeacherLayout";
 import ImaSettingsCard from "@/components/settings/ImaSettingsCard";
+import TeacherDataBackupCard from "@/components/settings/TeacherDataBackupCard";
 import {
   TeacherThemeKey,
   TEACHER_THEMES,
@@ -1726,6 +1727,11 @@ export default function TeacherSettingsPage() {
 
         {/* ima 知识库对接（2026-11-12）：独立组件，见 src/components/settings/ImaSettingsCard.tsx */}
         <ImaSettingsCard />
+
+        {/* MUST KEEP ENCRYPTED: 全量数据含密钥，导出行为与服务端加密格式保持一致。
+            🔗 RELATED: src/components/settings/TeacherDataBackupCard.tsx、src/app/api/teacher-data/export/route.ts。
+            ⛔ DO NOT REVERT: 不回退为明文配置导出，也不将备份密码持久化。 */}
+        <TeacherDataBackupCard />
 
         {/* 系统信息 - 可折叠卡片 */}
         <div className="bg-white rounded-xl shadow-sm border border-[var(--card-border)] overflow-hidden">
