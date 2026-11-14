@@ -18,6 +18,10 @@ async function deriveKey(password: string, salt: Buffer, version: number): Promi
   if (queue.waiting >= 4) throw new Error("备份加密任务较多，请稍后重试");
   queue.waiting++;
   const job = queue.tail.then(() => new Promise<Buffer>((resolve, reject) => {
+    // MUST KEEP VERSION MAPPING IN SYNC: 新增版本时必须保留所有旧版本的固定参数。
+    // 📐 CONTRACT: v1 固定 N=16384，v2 固定 N=131072；版本号决定派生参数。
+    // 🔗 RELATED: decryptTeacherBackup 的版本白名单、CURRENT_VERSION 和 scripts/test-pr2-review.cjs。
+    // ⛔ DO NOT REVERT: 新增版本不能让旧版落入新参数，否则历史备份无法解密。
     const options = version === 1 ? { N: 16384, r: 8, p: 1, maxmem: 32 * 1024 * 1024 } : { N: 131072, r: 8, p: 1, maxmem: 192 * 1024 * 1024 };
     scryptCallback(password, salt, 32, options, (error, key) => error ? reject(error) : resolve(key));
   }));

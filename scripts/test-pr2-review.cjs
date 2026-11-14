@@ -34,6 +34,10 @@ async function main() {
   await assert.rejects(decryptTeacherBackup(corrupted, password), /密码错误或备份文件已损坏/);
   const future = Buffer.from(v2); future[10] = 3;
   await assert.rejects(decryptTeacherBackup(future, password), /格式不正确/);
+  // MUST AWAIT EARLIER KDF TESTS: 本测试依赖前面的派生全部结束、共享队列为空。
+  // 📐 CONTRACT: 同时提交 5 项，其中 4 项进入队列、1 项被拒绝。
+  // 🔗 RELATED: src/lib/teacher-backup-crypto.ts 的进程级 KDF 队列。
+  // ⛔ DO NOT REVERT: 并行化前序测试或共用繁忙进程会使本断言产生误报。
   const jobs = await Promise.allSettled(Array.from({ length: 5 }, () => encryptTeacherBackup(input, password)));
   assert.equal(jobs.filter((j) => j.status === 'fulfilled').length, 4, 'KDF 排队上限');
   assert.equal(jobs.filter((j) => j.status === 'rejected').length, 1, '超出排队上限拒绝');
