@@ -1,5 +1,7 @@
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
+import { initializeDefaultTemplates } from "../src/lib/initialize-default-templates";
+import { seedInitialClass } from "./seed-initial";
 
 const prisma = new PrismaClient();
 
@@ -231,161 +233,12 @@ export async function seedTeacherData(teacherId: string, teacherName: string, in
   });
   console.log("任务分配已同步");
 
-  // 9. 分析模板 - 使用 upsert 基于 name + teacherId（可选，注册时跳过）
-  if (!includeTemplates) {
-    console.log("跳过分析模板创建（includeTemplates=false）");
-  } else {
-  const templates = [
-    {
-      name: "学生个人学情模板",
-      type: "student",
-      content: `## 学生信息
-  姓名：{studentName}
-  ## 课堂背景
-  - 课题：{taskTitle}
-  - 目标：{taskDescription}
-  ## 对话活动信息
-  - 对话活动：{pcTitle}
-  - 活动目标：{pcDescription}
-  ## 对话内容
-  - 对话记录：{personalDialogContents}
-  ## 分析维度
-  ### 一、学习态度与参与度
-  分析学生在本对话活动中的参与积极性、提问质量和互动深度。
-  ### 二、知识点理解分析
-  结合对话内容，分析学生对核心概念的理解程度和常见误区。
-  ### 三、学习优势
-  指出该学生在本次学习中的突出表现和亮点。
-  ### 四、薄弱环节
-  指出需要重点关注和改进的方面。
-  ### 五、个性化建议
-  给出2-3条具体可行的学习改进建议。`,
-      isDefault: true,
-    },
-    {
-      name: "学生全班学情模板",
-      type: "class",
-      content: `请根据对话背景和分析要求分析全班活动情况。
-  ## 对话背景
-  ### 课题信息
-  - 课题：{taskTitle}
-  - 目标：{taskDescription}
-  ### 对话活动信息
-  - 对话活动：{pcTitle}
-  - 活动目标：{pcDescription}
-  ### 对话内容
-  - 对话记录：{personalDialogContents}
-  ## 分析维度
-  ### 一、班级整体学习状态
-  概括班级整体活跃度和参与情况，分析学生讨论的热点话题。
-  ### 二、共性问题分析
-  汇总全班学生在知识点理解上的共同困难和常见误区。
-  ### 三、突出表现
-  指出班级中表现优秀或进步明显的学生及其特点。
-  ### 四、教学建议
-  给出针对班级整体的具体可操作的教学改进建议。
-  ### 五、重点关注学生名单
-  每个维度列出发现较差的5位同学姓名。`,
-      isDefault: true,
-    },
-    {
-      name: "对话设计模板",
-      type: "conversation",
-      content: `你是一位循循善诱的学科教师，在对话活动中引导学生主动思考和探究。你的首要身份是**学科教师**，而非单纯的聊天对象。
-
-## 对话活动目标
-{pcDescription}
-
-## 课堂信息
-- 课题：{taskTitle}
-- 年级：{taskGrade}
-- 学科：{taskSubject}
-
-## 对话要求
-1. **以问代答**：多通过提问引导学生思考，而非直接给出答案，最多 100 字。
-2. **鼓励质疑**：欢迎学生提出不同观点，培养批判性思维
-3. **联系生活**：适当联系学生熟悉的生活实例，帮助理解抽象概念
-4. **适时总结**：在学生理解关键知识点后，进行简明扼要的总结
-5. **分层引导**：根据学生的回答深度调整问题难度
-
-## 禁止行为
-- 不要一次性给出太多信息，每次聚焦1-2个要点
-- 不要使用成人化或过于专业的术语
-- 不要代替学生完成思考过程`,
-      isDefault: true,
-    },
-    {
-      name: "课堂作业设计模板",
-      type: "QUIZ_DESIGN",
-      content: `你是一位资深学科教师，请根据以下信息设计课堂作业题目。`,
-      isDefault: true,
-    },
-    {
-      name: "课堂作业分析模板",
-      type: "QUIZ_ANALYSIS",
-      content: `你是一位资深学科教师，请根据以下班级的课堂作业答题数据，生成专业的班级学情分析报告。`,
-      isDefault: true,
-    },
-    {
-      name: "学生个人学情模板（对话活动）",
-      type: "student",
-      content: `## 学生信息
-  姓名：{studentName}
-  ## 对话活动信息
-  - 活动：{pcTitle}
-  ## 对话内容
-  {personalDialogContents}
-  ## 分析维度
-  ### 一、学习态度与参与度
-  ### 二、知识点理解
-  ### 三、学习优势
-  ### 四、薄弱环节
-  ### 五、个性化建议`,
-      isDefault: false,
-    },
-    {
-      name: "学生全班学情模板（对话活动）",
-      type: "class",
-      content: `## 班级整体学习状态
-  ## 共性问题分析
-  ## 突出表现
-  ## 教学建议
-  ## 重点关注学生名单`,
-      isDefault: false,
-    },
-  ];
-
-  for (const tpl of templates) {
-    // 查找同名模板
-    const existing = await prisma.analysisTemplate.findFirst({
-      where: { name: tpl.name, teacherId },
-    });
-    if (existing) {
-      // 更新内容
-      await prisma.analysisTemplate.update({
-        where: { id: existing.id },
-        data: {
-          type: tpl.type,
-          content: tpl.content,
-          isDefault: tpl.isDefault,
-          updatedAt: new Date(),
-        },
-      });
-    } else {
-      // 创建新模板
-      await prisma.analysisTemplate.create({
-        data: {
-          teacherId,
-          name: tpl.name,
-          type: tpl.type,
-          content: tpl.content,
-          isDefault: tpl.isDefault,
-          updatedAt: new Date(),
-        },
-      });
-    }
-  }
-  console.log("分析模板已同步:", templates.length, "个");
+  // MUST PRESERVE DEFAULTS: 初始化六类模板时保留教师已有默认选择和正文。
+  // 📐 CONTRACT: includeTemplates=false 供注册演示数据使用；注册事务已创建默认模板。
+  // 🔗 RELATED: src/lib/initialize-default-templates.ts、src/app/api/auth/register/route.ts。
+  // ⛔ DO NOT REVERT: seed 可重复执行，不得覆盖教师修改过的模板。
+  if (includeTemplates) {
+    await prisma.$transaction((tx) => initializeDefaultTemplates(tx, teacherId));
   }
 
   return { cls1, cls2, task, sp1 };
@@ -419,7 +272,10 @@ async function main() {
     console.log("教师已存在，已更新信息");
   }
 
-  await seedTeacherData(teacher.id, teacher.name);
+  await prisma.$transaction(async (tx) => {
+    await initializeDefaultTemplates(tx, teacher!.id);
+    await seedInitialClass(tx, teacher!.id);
+  });
 
   console.log("\n=== 数据统计 ===");
   console.log("用户:", await prisma.user.count());

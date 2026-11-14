@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { createToken } from "@/lib/auth";
 import bcrypt from "bcryptjs";
+import { starterTemplates } from "@/lib/starter-templates";
+import { seedInitialClass } from "@/../prisma/seed-initial";
 
 export async function POST(req: NextRequest) {
   try {
@@ -46,7 +48,12 @@ export async function POST(req: NextRequest) {
       passwordKeyHash = await bcrypt.hash(keyToken, 10);
     }
 
-    const user = await prisma.user.create({
+    // MUST CREATE TOGETHER: 新安装注册后立即拥有六类默认模板，避免异步演示数据失败或延迟导致缺失。
+    // 📐 CONTRACT: 只为新账号创建，不覆盖已有教师的模板；任一写入失败则事务回滚。
+    // 🔗 RELATED: src/lib/starter-templates.ts、prisma/seed-full.ts、prisma/init-templates.ts。
+    // ⛔ DO NOT REVERT: 不依赖 seed-demo 的后台执行，首次登录也必须能使用默认模板。
+    const user = await prisma.$transaction(async (tx) => {
+      const created = await tx.user.create({
       data: {
         phone,
         email,
@@ -58,20 +65,16 @@ export async function POST(req: NextRequest) {
         recoveryAnswerHash,
         passwordKeyHash,
       },
+      });
+      await tx.analysisTemplate.createMany({ data: Object.entries(starterTemplates).map(([type, template]) => ({
+        teacherId: created.id, type, name: template.name, content: template.content,
+        isDefault: true, updatedAt: new Date(),
+      })) });
+      await seedInitialClass(tx, created.id);
+      return created;
     });
 
     // ⛔ DO NOT ADD BACK：不向任何第三方站点同步教师个人信息（原注释掉的 maoyouhui.org sync-user / check-phone 已于 2026-11-11 删除）
-
-    // 异步填充演示数据（不阻塞 token 返回）
-    // 仅第一个教师注册时执行（注册路由已限定本地部署仅一个教师账号）
-    void (async () => {
-      try {
-        const { seedDemoForNewTeacher } = await import("@/../prisma/seed-demo");
-        await seedDemoForNewTeacher(user.id, user.name);
-      } catch (e) {
-        console.error("[register] 演示数据填充失败（不影响注册）:", e);
-      }
-    })();
 
     const token = await createToken({
       userId: user.id,
