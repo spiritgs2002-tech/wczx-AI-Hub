@@ -87,3 +87,10 @@ npm-build.log
 
 # 局域网 HTTPS 入口的自签名证书与私钥（每台机器自动生成，绝不提交）
 .https/
+
+# 教师恢复前自动备份含敏感数据，不得提交或打包
+/.teacher-backups/
+# 恢复期间的日志、临时数据库和附件不得提交
+/.teacher-restore/
+# 恢复维护期间跨进程数据访问标记
+/.teacher-active/

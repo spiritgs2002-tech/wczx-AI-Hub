@@ -8,6 +8,11 @@
  */
 export async function register() {
   if (process.env.NEXT_RUNTIME === "nodejs") {
+    // MUST RECOVER BEFORE SERVING: 中断时依据数据库事务标记完成附件回滚或清理，失败则不启动服务。
+    // 📐 CONTRACT: 仅 Node 运行时执行；🔗 RELATED: src/lib/teacher-restore.ts 的恢复日志。
+    // ⛔ DO NOT REVERT: 否则数据库与上传文件可能停留在不同版本。
+    const { recoverInterruptedTeacherRestore } = await import("./lib/teacher-restore");
+    await recoverInterruptedTeacherRestore();
     const { startHttpsEntry } = await import("./lib/https-entry");
     await startHttpsEntry();
   }
