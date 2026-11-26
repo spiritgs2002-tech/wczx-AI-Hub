@@ -1,3 +1,4 @@
+import { PROMPT_FIELDS, recordPromptVersion, snapshotOf } from "@/lib/prompt-version";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { verifyToken } from "@/lib/auth";
@@ -86,6 +87,15 @@ export async function PUT(
       },
     });
 
+    // MUST RECORD AFTER SAVE: 仅在原有更新成功后记录实际提示词变更。
+    // 📐 CONTRACT: 快照走共享白名单；🔗 RELATED: src/lib/prompt-version.ts。
+    // ⛔ DO NOT REVERT: 不将 HTML、业务字段或整行写入版本表。
+    if (payload.role === "TEACHER" && PROMPT_FIELDS.QuizActivity.some((field) => body[field] !== undefined)) {
+      await recordPromptVersion({
+        teacherId: String(payload.userId), targetModel: "QuizActivity", targetId: id, label: updated.title,
+        before: snapshotOf("QuizActivity", quiz), after: snapshotOf("QuizActivity", updated),
+      });
+    }
     return NextResponse.json(updated);
   } catch (error) {
     console.error("更新作业失败:", error);

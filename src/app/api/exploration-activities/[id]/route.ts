@@ -1,3 +1,4 @@
+import { PROMPT_FIELDS, recordPromptVersion, snapshotOf } from "@/lib/prompt-version";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { verifyToken } from "@/lib/auth";
@@ -76,6 +77,7 @@ export async function PUT(
       htmlContent,
       enableSubmission,
       enableAiCompanion,
+      enableClassDataForCompanion,
       aiCompanionPrompt,
       designPrompt,
       analysisPrompt,
@@ -117,6 +119,13 @@ export async function PUT(
       updateData.chatHistoryJson = Array.isArray(chatHistory) && chatHistory.length > 0
         ? JSON.stringify(chatHistory)
         : null;
+    }
+
+    // MUST PRESERVE OMITTED SETTINGS: 旧客户端和局部保存不会发送新开关。
+    // 📐 CONTRACT: 仅显式布尔值更新。🔗 RELATED: schema.prisma、教师探究编辑器。
+    // ⛔ DO NOT REVERT: 不用默认 false 覆盖未传字段。
+    if (typeof enableClassDataForCompanion === "boolean") {
+      updateData.enableClassDataForCompanion = enableClassDataForCompanion;
     }
 
     // AI伴学提示词（教师可手动编辑）
@@ -197,6 +206,15 @@ export async function PUT(
       data: updateData as any,
     });
 
+    // MUST RECORD AFTER SAVE: 仅在原有更新成功后记录实际提示词变更。
+    // 📐 CONTRACT: 快照走共享白名单；🔗 RELATED: src/lib/prompt-version.ts。
+    // ⛔ DO NOT REVERT: 不将 HTML、业务字段或整行写入版本表。
+    if (payload.role === "TEACHER" && PROMPT_FIELDS.ExplorationActivity.some((field) => Object.hasOwn(updateData, field))) {
+      await recordPromptVersion({
+        teacherId: String(payload.userId), targetModel: "ExplorationActivity", targetId: id, label: updated.title,
+        before: snapshotOf("ExplorationActivity", item), after: snapshotOf("ExplorationActivity", updated),
+      });
+    }
     const response: Record<string, unknown> = { ...updated };
     if (qfWarnings && qfWarnings.length > 0) {
       response._qfWarnings = qfWarnings;

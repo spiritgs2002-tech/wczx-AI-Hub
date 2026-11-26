@@ -143,7 +143,7 @@ async function gradeByAI(
   }
 
   if (shortAnswers.length > 0) {
-    prompt += "【简答题】\n";
+    prompt += "【简答题】\n简答题按参考答案中的评分要点逐条给分，采意不采词；表达与要点意思一致即可给分。\n";
     shortAnswers.forEach((a) => {
       const q = shortQuestions.find((q) => q.id === a.questionId)!;
       seq += 1;

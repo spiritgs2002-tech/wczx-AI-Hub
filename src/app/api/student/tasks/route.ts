@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { verifyToken } from "@/lib/auth";
+import { findMyGroup, parseMemberIds } from "@/lib/groups/grouping";
 
 // GET: 学生获取自己班级分配的课堂
 export async function GET(req: NextRequest) {
@@ -56,9 +57,32 @@ export async function GET(req: NextRequest) {
     // 库里无论存纯净稿还是存量注入版都能正确渲染，无需也不应在此写库（与「库存纯净稿」契约一致）。
     // 列表 select 也因此不再取 htmlContent —— 学生端按需拉 /api/student/explorations/[id] 懒加载。
 
+    // MUST KEEP GROUP MEMBERSHIP PRIVATE: 批量查自己班级，只映射当前学生所属的小组摘要。
+    // 📐 CONTRACT: 分组表未部署时回落为无分组；🔗 RELATED: student/chat/page.tsx。
+    // ⛔ DO NOT REVERT: 不返回成员 ID，也不改子项目与活动映射。
+    const groups = tasks.length ? await prisma.taskGroup.findMany({
+      where: { classId: user.classId, taskId: { in: tasks.map(({ id }) => id) } },
+      select: { id: true, taskId: true, name: true, memberIds: true, tier: true, taskBrief: true, sortOrder: true },
+      orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
+    }).catch((error) => {
+      if (error?.code === "P2021") return [];
+      throw error;
+    }) : [];
+    const groupsByTask = new Map<string, typeof groups>();
+    for (const group of groups) {
+      const bucket = groupsByTask.get(group.taskId);
+      if (bucket) bucket.push(group);
+      else groupsByTask.set(group.taskId, [group]);
+    }
+
     // 映射字段名以匹配前端期望
     const mappedTasks = tasks.map(task => ({
       ...task,
+      myGroup: (() => {
+        const group = findMyGroup(groupsByTask.get(task.id) ?? [], userId);
+        return group ? { id: group.id, name: group.name, tier: group.tier, taskBrief: group.taskBrief,
+          memberCount: parseMemberIds(group.memberIds).length } : null;
+      })(),
       subProjects: task.subProjects.map(({ ExplorationActivity, PresetConversation, QuizActivity, ProjectSubmission, ...spRest }) => ({
         ...spRest,
         presetConversations: PresetConversation,

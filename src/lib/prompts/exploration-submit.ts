@@ -168,6 +168,20 @@ function submitResults() {
     }
   }
 
+  var hasBatch = Array.isArray(gs.answersBatch);
+  var answersBatch = hasBatch ? gs.answersBatch.slice(0, 200) : [];
+  // Keep batch rows in the dedicated payload field for submit/route.ts to validate.
+  // DO NOT REVERT: Archiving the batch in gameState duplicates student data.
+  var archivedState = gs;
+  if (hasBatch) {
+    archivedState = {};
+    for (var stateKey in gs) {
+      if (stateKey !== "answersBatch" && Object.prototype.hasOwnProperty.call(gs, stateKey)) {
+        archivedState[stateKey] = gs[stateKey];
+      }
+    }
+  }
+
   // --- 兜底：分数正则（仅评分页且两轨都无分数时，从页面文本推测）---
   if (profile.hasScoring !== false && finalScore === 0) {
     try {
@@ -214,8 +228,9 @@ function submitResults() {
       gameLevel: finalLevel,
       actionLog: data.actionLog || [],
       answers: answers,
+      answersBatch: answersBatch,
       // 契约轨明细（教师端展示用）
-      gameState: gs,
+      gameState: archivedState,
       scoreInferred: inferred,
       // 兜底采集
       canvasSnapshots: canvasSnapshots,
@@ -371,6 +386,7 @@ export const submitButtonHTML = `<div id="wczx-ai-hub-submit-root"><button id="s
  *   (b) 兜底追加一个通用「探究记录」面板（姓名 + 我的发现），
  *       页面里没有任何可填控件时也至少有东西可采。
  *
+ * ⛔ DO NOT REVERT: answersBatch 是「一片叶子一条记录」的批量明细通道；answers 保持旧单条语义，二者不可混用。
  * 采集结果随原有 postMessage 一起提交（payload.answers），
  * 归属哪个 QuickForm 任务由服务端按 ExplorationActivity.qfTaskId 决定 —— 
  * 因此**页面里不出现任何 taskId / 提交链接**，AI 重生成网页也不会冲掉绑定。
@@ -722,11 +738,19 @@ export function injectSubmitFunctionality(
   const hasScoring = profile?.hasScoring !== false;
   const hasFormControls = profile?.hasFormControls !== false;
   const hasCanvas = profile?.hasCanvas !== false;
-  const profileScript = "window.__COLLECT_PROFILE__ = " + JSON.stringify({ hasScoring, hasFormControls, hasCanvas }) + ";";
-  if (modified.includes("</body>")) {
-    modified = modified.replace("</body>", "<script>" + profileScript + "</script></body>");
-  } else {
-    modified = modified + "<script>" + profileScript + "</script>";
+  const profileBlock = "<script>window.__COLLECT_PROFILE__ = " + JSON.stringify({ hasScoring, hasFormControls, hasCanvas }) + ";</script>";
+  // ⛔ DO NOT REVERT: 原位更新固定形状的系统配置块，防止重复注入时叠加或移动脚本。
+  // 📐 CONTRACT: 业务脚本保持原样；🔗 RELATED: 第 7 步 QuickForm 采集块的幂等替换。
+  let foundProfile = false;
+  modified = modified.replace(/<script>window\.__COLLECT_PROFILE__ = \{"hasScoring":(?:true|false),"hasFormControls":(?:true|false),"hasCanvas":(?:true|false)\};<\/script>/g, () => {
+    if (foundProfile) return "";
+    foundProfile = true;
+    return profileBlock;
+  });
+  if (!foundProfile) {
+    modified = modified.includes("</body>")
+      ? modified.replace("</body>", profileBlock + "</body>")
+      : modified + profileBlock;
   }
 
   // 5. 检查是否已有提交函数（使用 postMessage 通信）

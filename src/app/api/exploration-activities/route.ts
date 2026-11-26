@@ -66,7 +66,7 @@ export async function POST(req: NextRequest) {
     if (!payload) return new Response("登录已过期", { status: 401 });
 
     const body = await req.json();
-    const { subProjectId, title, description, htmlContent, enableSubmission, enableAiCompanion, aiCompanionPrompt, designPrompt, analysisPrompt, chatHistory } = body;
+    const { subProjectId, title, description, htmlContent, enableSubmission, enableAiCompanion, enableClassDataForCompanion, aiCompanionPrompt, designPrompt, analysisPrompt, chatHistory } = body;
 
     if (!subProjectId || !title?.trim()) {
       return new Response("缺少必填字段", { status: 400 });
@@ -96,6 +96,9 @@ export async function POST(req: NextRequest) {
         enabled: true,
         enableSubmission: enableSubmission || false,
         enableAiCompanion: enableAiCompanion ?? false,
+        // MUST REQUIRE EXPLICIT OPT-IN: 新活动默认关闭。📐 CONTRACT: 仅布尔 true 开启。
+        // 🔗 RELATED: schema.prisma、教师探究编辑器。⛔ DO NOT REVERT: 不用真值转换开启。
+        enableClassDataForCompanion: enableClassDataForCompanion === true,
         aiCompanionPrompt: aiCompanionPrompt || null,
         designPrompt: designPrompt || null,
         analysisPrompt: analysisPrompt || null,

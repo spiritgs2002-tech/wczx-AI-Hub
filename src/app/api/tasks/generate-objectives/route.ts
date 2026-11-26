@@ -93,7 +93,10 @@ ${currentContent.trim()}
 5. 内容紧扣课题「${title.trim()}」，具体可操作，避免空泛套话
 6. 直接输出目标内容：每条一行、行首以序号编号（1. 2. 3. …），不要输出任何额外解释`;
 
-    const { chatModel } = await createDashScopeClient();
+    // ⛔ DO NOT REVERT: 非流式 generateText 的响应头要等模型整段生成后才到达。
+    // 短目标实测 9.9 秒，默认 10 秒连接超时可能提前中止；noFailover 只用文本主模型，取消该超时。
+    // 📐 CONTRACT: 仅目标生成走此通道；🔗 RELATED: src/lib/ai.ts 的 noFailover 分支。
+    const { chatModel } = await createDashScopeClient("text", undefined, { noFailover: true });
 
     const callAI = (p: string) =>
       aiQueue.enqueue(async () =>

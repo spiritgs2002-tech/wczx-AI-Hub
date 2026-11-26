@@ -23,12 +23,21 @@ export interface FieldSummary {
   min?: number;
   max?: number;
   avg?: number;
+  median?: number;
+  mode?: number | null;
+  range?: number;
+  q1?: number;
+  q3?: number;
+  variance?: number;
+  stddev?: number;
 }
 
 export interface AiDashboardKpi {
   label: string;
   field: string | null;
-  agg: "count" | "unique" | "avg" | "sum" | "max" | "min";
+  /** 仅类别字段可作为分组依据。 */
+  groupBy?: string;
+  agg: "count" | "unique" | "avg" | "sum" | "max" | "min" | "median" | "mode" | "range" | "variance" | "stddev";
 }
 
 export type AiChartType =
@@ -40,7 +49,8 @@ export type AiChartType =
   | "list"
   | "ranking"
   | "wordcloud"
-  | "scatter";
+  | "scatter"
+  | "boxplot";
 
 /** 强调色（AI 只能从中选择；渲染器为白底统一基调，此色仅决定图表主色，不允许 AI 自造颜色/样式）
  *  ⚠️ 旧配置的深色主题名（aurora 等）不在白名单内，sanitize 自动落回默认蓝，无需迁移。 */
@@ -53,6 +63,8 @@ export const DEFAULT_THEME: AiDashboardTheme = "blue";
 export interface AiDashboardChart {
   title: string;
   field: string;
+  /** 仅类别字段可作为分组依据。 */
+  groupBy?: string;
   type: AiChartType;
   limit?: number;
   /** 占几列（1..gridCols），= gridCols 即整行通栏；默认 1。旧配置 span=2 在 2 列下仍通栏，向后兼容。 */
@@ -92,7 +104,10 @@ export interface AiDashboardConfig {
  */
 export const SUBMITTED_AT_FIELD = "提交时间";
 
-const ALLOWED_AGGS: AiDashboardKpi["agg"][] = ["count", "unique", "avg", "sum", "max", "min"];
+// MUST STAY IN SYNC: 保存与 AI 生成共用此白名单，旧枚举与降级规则继续有效。
+// 📐 CONTRACT: 只接受配置 JSON；🔗 RELATED: DashboardEditor、QuickFormAiDashboard、dashboard-config/route.ts。
+// ⛔ DO NOT REVERT: 新枚举须同时进入编辑器和渲染器，否则保存后会退回默认类型。
+const ALLOWED_AGGS: AiDashboardKpi["agg"][] = ["count", "unique", "avg", "sum", "max", "min", "median", "mode", "range", "variance", "stddev"];
 const ALLOWED_TYPES: AiChartType[] = [
   "bar",
   "line",
@@ -103,6 +118,7 @@ const ALLOWED_TYPES: AiChartType[] = [
   "ranking",
   "wordcloud",
   "scatter",
+  "boxplot",
 ];
 const ALLOWED_GRID_COLS: AiDashboardGridCols[] = [2, 3, 4];
 
@@ -113,13 +129,58 @@ const MAX_TOP = 8;
 /** 图表卡片数量上限（AI 生成截断 & 编辑器添加按钮共用） */
 export const MAX_CHARTS = 12;
 
-function isNumericValue(v: unknown): boolean {
+export function isNumericValue(v: unknown): boolean {
   if (typeof v === "number") return Number.isFinite(v);
   if (typeof v === "string") {
     const n = Number(v);
     return v.trim() !== "" && Number.isFinite(n);
   }
   return false;
+}
+
+// MUST SHARE ONE CALCULATION: 摘要、KPI 与箱线图使用相同的中位数、总体方差和 Tukey 须口径。
+// 📐 CONTRACT: 排序不修改实参；无数据返回 null，单值的四分位数退化为该值。
+// 🔗 RELATED: buildFieldSummaries、QuickFormAiDashboard.ChartBody；原始离群点只供图表使用。
+// ⛔ DO NOT REVERT: 方差除以 n，标准差从未取整的方差开方；勿把离群点数组放入 AI 摘要。
+export function computeNumberStats(nums: number[]) {
+  const sorted = nums.filter(isNumericValue).sort((a, b) => a - b);
+  const count = sorted.length;
+  if (!count) return null;
+
+  const medianOf = (values: number[]) => {
+    const mid = Math.floor(values.length / 2);
+    return values.length % 2 ? values[mid] : values[mid - 1] / 2 + values[mid] / 2;
+  };
+  const min = sorted[0];
+  const max = sorted[count - 1];
+  const mid = Math.floor(count / 2);
+  const median = medianOf(sorted);
+  const q1 = mid ? medianOf(sorted.slice(0, mid)) : median;
+  const q3 = mid ? medianOf(sorted.slice(Math.ceil(count / 2))) : median;
+  const iqr = q3 - q1;
+  const lower = q1 - 1.5 * iqr;
+  const upper = q3 + 1.5 * iqr;
+  const inliers = sorted.filter((n) => n >= lower && n <= upper);
+  const frequencies = new Map<number, number>();
+  for (const n of sorted) frequencies.set(n, (frequencies.get(n) ?? 0) + 1);
+  let mode: number | null = null;
+  let highest = 1;
+  for (const [n, frequency] of frequencies) {
+    if (frequency > highest) {
+      mode = n;
+      highest = frequency;
+    }
+  }
+  const mean = sorted.reduce((sum, n) => sum + n / count, 0);
+  const variance = sorted.reduce((sum, n) => sum + (n - mean) ** 2 / count, 0);
+  const round = (n: number) => Number(n.toFixed(2));
+  return {
+    count, unique: frequencies.size, min, max, avg: round(mean), median, mode,
+    range: max - min, q1, q3, iqr, variance: round(variance), stddev: round(Math.sqrt(variance)),
+    whiskerMin: inliers[0] ?? min,
+    whiskerMax: inliers[inliers.length - 1] ?? max,
+    outliers: sorted.filter((n) => n < lower || n > upper),
+  };
 }
 
 function toCounter(values: unknown[], limit: number): { value: string; count: number }[] {
@@ -170,17 +231,11 @@ export function buildFieldSummaries(records: { data?: Record<string, unknown> }[
     }
 
     if (values.every(isNumericValue)) {
-      const nums = values.map((v) => Number(v));
-      const sum = nums.reduce((a, b) => a + b, 0);
-      out.push({
-        name,
-        type: "number",
-        count: nums.length,
-        unique: new Set(nums.map((v) => String(v))).size,
-        min: Math.min(...nums),
-        max: Math.max(...nums),
-        avg: Math.round((sum / nums.length) * 100) / 100,
-      });
+      const stats = computeNumberStats(values.map(Number));
+      if (stats) {
+        const { count, unique, min, max, avg, median, mode, range, q1, q3, variance, stddev } = stats;
+        out.push({ name, type: "number", count, unique, min, max, avg, median, mode, range, q1, q3, variance, stddev });
+      }
       continue;
     }
 
@@ -274,16 +329,22 @@ export const DASHBOARD_SYSTEM_PROMPT = `你是「课堂数据大屏」的排版�
 - ranking  排行榜（按某字段值给个体排名，如按分数排榜单，通栏展示）
 - wordcloud 词云（适合自由文本 / 多选的视觉化，词越大出现越多）
 - scatter  散点图（两个数值字段的相关性，如「练习时长 × 得分」）
+- boxplot  箱线图（field 选真实存在的数值字段，用于展示四分位数和离群点）
 
 【KPI 指标（大屏顶部的统计数字卡）】
 KPI 给 3~4 个，每个含三要素：label（指标名，≤6 字）、field（统计的字段名；null 表示统计「全部提交」）、agg（聚合方式）。
-agg 六种语义：
+agg 支持以下聚合：
 - count  计数：field=null → 提交总人数；field=某字段 → 该字段填写人次
 - unique 去重个数
 - avg    均值（仅数值字段）
 - sum    求和（仅数值字段）
 - max    最大值（仅数值字段）
 - min    最小值（仅数值字段）
+- median 中位数（field 必须是摘要中真实存在的数值字段）
+- mode   众数（仅数值字段；mode 为 null 时显示"—"是正常行为，不要改成 0）
+- range  极差（仅数值字段）
+- variance 总体方差（仅数值字段）
+- stddev 总体标准差（仅数值字段）
 默认：先给「提交总人数」（field=null, agg=count），再按数值字段补 1~2 个均值/最值，最后可用高频选项计数收尾。
 ⚠️ 若老师额外要求里带了【KPI 硬约束】（出现在用户消息里），必须逐一兑现：每个指定的 agg 都要有对应 KPI、放在靠前位置，label 沿用老师原词（≤6 字）。
 
@@ -306,12 +367,14 @@ agg 六种语义：
 1. gridCols 决定一行放几个图（2 / 3 / 4）。字段少（≤3 个）用 2；中等（4~6 个）用 3 或 4；老师点名"一行四个"就用 4。省略时按字段数量自选。
 2. span 表示该图占几列（1..gridCols）。span=gridCols 即整行通栏（主视觉，留给最重要、最抓眼球的图，最多 1 个通栏）；其余填 1（或 2 表示占半行）。每行 span 之和凑到 gridCols 就自动换行。
 3. 图表组合要有节奏：一张通栏主视觉 + 若干不同图型的小卡（bar/pie/hbar/list 混搭，避免全是同一种图型）。
-4. 名单（roster）永远通栏展示（引擎自动处理，无需给它 span）；数值字段优先 bar；取值 3~4 种的选项用 pie、5 种以上用 hbar；自由文本用 list。
+4. 名单（roster）永远通栏展示（引擎自动处理，无需给它 span）；数值字段通常优先 bar；若数值字段有至少 8 条提交，且字段名暗示时长、成绩、分数、用量、温度、数量等测量量，优先为它生成一张 boxplot；取值 3~4 种的选项用 pie、5 种以上用 hbar；自由文本用 list。
 5. 标题和解读要像大屏文案：短、有洞察（如"姓名分布"不如"他们是谁"），但不许夸张编造结论。
+
+按类别比较、分组或不同种类对比时，存在类别字段则设置 groupBy；groupBy 必须是类别字段，不能是数值字段。示例：{"title":"三种树叶比值","type":"boxplot","field":"比值","groupBy":"树种"}。
 
 【特殊图型的字段约束】
 - ranking：sortField 填「排名次的字段」（必须数值，如分数）；labelField 填「显示谁的字段」（姓名/学号等标识字段）。两个都要给。
-- scatter：xField、yField 填两个不同的数值字段；labelField 可选（hover 显示标识）。
+- scatter：xField、yField 填两个不同的数值字段；labelField 可选（hover 显示标识）；groupBy 可选且只能是类别字段（如「组别」），填了会按组给点着色并显示图例。
 - wordcloud：field 只填自由文本或低基数多选字段；选项题（3~4 种）优先用 pie/hbar，不要用词云。
 
 【硬性规则】
@@ -393,7 +456,10 @@ function normalizeFieldName(s: string): string {
  *   - limit 夹在 3~20
  * 非法条目直接丢弃，不报错（宁可少画一张图，也不让页面崩）。
  */
-export function sanitizeDashboardConfig(raw: unknown, validFields: string[]): AiDashboardConfig {
+// MUST KEEP THE FIELD LIST CONTRACT: 旧调用只传字段名，新增类型信息须通过可选第三参数传入。
+// 📐 CONTRACT: 类型未知时仅校验存在性；🔗 RELATED: dashboard-config/route.ts 与大屏渲染器。
+// ⛔ DO NOT REVERT: 数值分组只删除 groupBy，不删除原图或 KPI。
+export function sanitizeDashboardConfig(raw: unknown, validFields: string[], fieldTypes?: Record<string, FieldSummary["type"]>): AiDashboardConfig {
   const valid = new Set(validFields);
   // 归一化字段名 → 真实 key 的兜底映射：AI 常丢掉字段名里的全角标点（见 normalizeFieldName），
   // 精确匹配不上时用它找回真实 key，避免合法图表被整条丢弃。
@@ -407,6 +473,10 @@ export function sanitizeDashboardConfig(raw: unknown, validFields: string[]): Ai
     return validByNorm.get(normalizeFieldName(t)) ?? null;
   };
   const o = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  const resolveGroup = (value: unknown) => {
+    const field = resolveField(value);
+    return field && fieldTypes?.[field] !== "number" ? field : undefined;
+  };
 
   // 栅格列数：白名单 2/3/4，默认 2（旧配置无此字段回退 2 列，向后兼容）
   const gridColsRaw = Number(o.gridCols);
@@ -425,7 +495,8 @@ export function sanitizeDashboardConfig(raw: unknown, validFields: string[]): Ai
         ? (it.agg as AiDashboardKpi["agg"])
         : "count";
       const field = resolveField(it.field);
-      kpis.push({ label, field, agg });
+      const groupBy = resolveGroup(it.groupBy);
+      kpis.push({ label, field, agg, ...(groupBy ? { groupBy } : {}) });
       if (kpis.length >= 4) break;
     }
   }
@@ -492,6 +563,7 @@ export function sanitizeDashboardConfig(raw: unknown, validFields: string[]): Ai
         title: clampStr(it.title, 14) || field,
         field,
         type,
+        ...(resolveGroup(it.groupBy) ? { groupBy: resolveGroup(it.groupBy) } : {}),
         limit,
         span,
         note: clampStr(it.note, 30),

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { Menu, Button } from "tdesign-react";
 import * as Icon from "tdesign-icons-react";
+import { saveProjectionSafe, useProjectionSafe } from "@/lib/projection-safe";
 import {
   TeacherThemeKey,
   TEACHER_THEMES,
@@ -19,11 +20,10 @@ export default function TeacherLayout({
   children: React.ReactNode;
 }) {
   const router = useRouter();
+  const safe = useProjectionSafe();
   const pathname = usePathname();
   const [user, setUser] = useState<{ name: string } | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [showExternal, setShowExternal] = useState(false);
-  const [externalUrl, setExternalUrl] = useState("");
   const [themeKey, setThemeKey] = useState<TeacherThemeKey>("default");
 
   useEffect(() => {
@@ -69,13 +69,6 @@ export default function TeacherLayout({
     return () => window.removeEventListener("wczx-user-updated", reload);
   }, []);
 
-  // 监听 pathname 变化，关闭外部显示
-  useEffect(() => {
-    if (pathname && !pathname.startsWith("http")) {
-      setShowExternal(false);
-    }
-  }, [pathname]);
-
   const handleLogout = () => {
     localStorage.removeItem("token");
     localStorage.removeItem("user");
@@ -119,12 +112,6 @@ export default function TeacherLayout({
       label: "模板设置",
     },
     {
-      key: "http://www.maoyouhui.org",
-      icon: <Icon.LinkIcon />,
-      label: "资源广场",
-      external: true,
-    },
-    {
       key: "/teacher/settings",
       icon: <Icon.SettingIcon />,
       label: "系统设置",
@@ -132,14 +119,7 @@ export default function TeacherLayout({
   ];
 
   const handleMenuChange = (key: string) => {
-    const item = menuItems.find((i) => i.key === key);
-    if (item?.external) {
-      setExternalUrl(key);
-      setShowExternal(true);
-    } else {
-      setShowExternal(false);
-      router.push(key);
-    }
+    router.push(key);
   };
 
   return (
@@ -167,7 +147,7 @@ export default function TeacherLayout({
         {!sidebarCollapsed && (
         <Menu
           theme="light"
-          value={showExternal ? "http://www.maoyouhui.org" : pathname}
+          value={pathname}
           onChange={(v) => handleMenuChange(v as string)}
           style={{ width: '100%', border: 'none' }}
           className="teacher-menu"
@@ -202,18 +182,9 @@ export default function TeacherLayout({
       <div className="flex-1 flex flex-col">
         {/* 顶栏（2026-10-13 苹果式）：纯色 + 发丝边框，不用渐变和投影 */}
         <div className="bg-[var(--sidebar-bg)] border-b border-[var(--sidebar-border)] px-6 py-3.5 flex items-center gap-3">
-          {showExternal && (
-            <Button
-              theme="default"
-              size="small"
-              onClick={() => setShowExternal(false)}
-            >
-              ← 返回
-            </Button>
-          )}
           {/* 页级大标题跟随主题色系（2026-10-13 用户反馈）：用 --title 而非近乎恒定的 --foreground */}
-          <h1 className="text-xl font-semibold text-[var(--title)] whitespace-nowrap">{showExternal ? '资源广场' : user?.name + '的工作台'}</h1>
-          {!showExternal && user && (user as any).motto && (
+          <h1 className="text-xl font-semibold text-[var(--title)] whitespace-nowrap">{user?.name + '的工作台'}</h1>
+          {user && (user as any).motto && (
             <div className="flex-1 min-w-0 overflow-hidden [mask-image:linear-gradient(90deg,transparent_12px,black_32px,black_calc(100%-32px),transparent_calc(100%-12px))]">
               <div className="inline-block whitespace-nowrap animate-marquee text-sm text-[var(--muted)]">
                 <span>{(user as any).motto}</span>
@@ -221,9 +192,17 @@ export default function TeacherLayout({
               </div>
             </div>
           )}
+          {/* MUST KEEP THE SWITCH LOCAL: 探究组件通过 projection-safe.ts 同步显示。
+              📐 CONTRACT: 不改变教师主题；🔗 RELATED: 探究大屏与提交详情。
+              ⛔ DO NOT REVERT: 不向服务端发送投屏状态。 */}
+          <Button size="small" theme={safe ? "warning" : "default"} variant={safe ? "outline" : "text"}
+            className="shrink-0" aria-pressed={safe} title="开启后隐藏学生姓名，适合投屏"
+            onClick={() => saveProjectionSafe(!safe)}>
+            投屏安全
+          </Button>
           {/* 主题切换（2026-10-13）：6 套预设配色的「色点」快速切换，保存在 localStorage。
               🔗 RELATED: src/lib/teacher-theme.ts（新增主题只需改那里，此处自动列出） */}
-          {!sidebarCollapsed && !showExternal && (
+          {!sidebarCollapsed && (
             <div className="ml-auto flex items-center gap-1.5 pl-3 border-l border-[var(--sidebar-border)]">
               <span className="text-xs text-[var(--muted-light)] hidden xl:inline mr-0.5">主题</span>
               {TEACHER_THEMES.map((t) => (
@@ -243,16 +222,7 @@ export default function TeacherLayout({
           )}
         </div>
         <div className="teacher-scope p-6 bg-[var(--background)] flex-1 min-h-0 overflow-y-auto">
-          {showExternal ? (
-            <iframe
-              src={externalUrl}
-              className="w-full h-full border-0 rounded-lg"
-              style={{ height: 'calc(100vh - 120px)' }}
-              title="资源广场"
-            />
-          ) : (
-            children
-          )}
+          {children}
         </div>
       </div>
     </div>

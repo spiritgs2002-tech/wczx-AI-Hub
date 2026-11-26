@@ -124,6 +124,7 @@ interface ProjectSubmissionInfo {
 }
 
 interface LearningTask {
+  myGroup?: { id: string; name: string; tier: string | null; taskBrief: string | null; memberCount: number } | null;
   id: string;
   title: string;
   description?: string;
@@ -1314,6 +1315,15 @@ export default function StudentChatPage() {
                           {task.title}
                         </span>
                       </div>
+                      {/* MUST KEEP GROUP OPTIONAL: 旧课堂不显示占位；🔗 RELATED: /api/student/tasks 的 myGroup。
+                          📐 CONTRACT: 只显示本人的小组和要求；⛔ DO NOT REVERT: 不从客户端推算归属。 */}
+                      {task.myGroup && (
+                        <div className="mt-1 ml-12 flex min-w-0 flex-wrap items-center gap-1.5 text-xs text-gray-600">
+                          <span>我的小组：{task.myGroup.name}</span>
+                          {task.myGroup.tier && <Tag size="small" theme="primary" variant="light">{task.myGroup.tier}</Tag>}
+                          {task.myGroup.taskBrief && <span className="max-w-full truncate" title={task.myGroup.taskBrief}>{task.myGroup.taskBrief}</span>}
+                        </div>
+                      )}
                     </div>
 
                     {expandedTaskIds.has(task.id) && (

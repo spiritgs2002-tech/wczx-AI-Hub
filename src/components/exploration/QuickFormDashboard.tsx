@@ -20,6 +20,7 @@
  */
 
 import { useMemo, type ReactNode } from "react";
+import { isProjectionNameField, maskDisplayName, useProjectionSafe } from "@/lib/projection-safe";
 import { ChartBar, ChartHBar, ChartPie } from "./DashboardCharts";
 
 export interface QfRecordItem {
@@ -32,6 +33,8 @@ export interface QfRecordItem {
 interface DashboardProps {
   records: QfRecordItem[];
   total: number;
+  /** 全屏投屏模式：铺满视口、放大留白（默认大屏无配置时同样支持） */
+  fullscreen?: boolean;
 }
 
 export type FieldKind = "identifier" | "numeric" | "low-cardinality" | "array" | "high-cardinality";
@@ -45,7 +48,7 @@ export interface FieldAnalysis {
 
 /** 「标识类」字段名提示：命中即按名单展示，不做统计。
  *  只认字段名、不做数值启发 —— 用「唯一值比例」兜底会把「爱好」这类自由填写误判成名单。 */
-const IDENTIFIER_KEY_HINTS = ["姓名", "名字", "学号", "学籍", "昵称", "name", "学生", "成员", "参与人", "报名人"];
+export const IDENTIFIER_KEY_HINTS = ["姓名", "名字", "学号", "学籍", "昵称", "name", "学生", "成员", "参与人", "报名人"];
 
 function isNumeric(v: unknown): boolean {
   if (typeof v === "number") return Number.isFinite(v);
@@ -218,9 +221,13 @@ function StatCard({ label, value }: { label: string; value: string }) {
 
 /** 名单墙（样稿样式）：标识类字段（姓名/学号）直接列人，双列编号名单 */
 function NameRoster({ field }: { field: FieldAnalysis }) {
+  const safe = useProjectionSafe();
   const names = field.values.map((v) => String(v));
   const LIMIT = 60;
-  const shown = names.slice(0, LIMIT);
+  // MUST MASK THE TITLE TOO: 浏览器悬浮提示与显示文本共用投屏别名。
+  // 📐 CONTRACT: 仅替换展示；🔗 RELATED: projection-safe.ts。
+  // ⛔ DO NOT REVERT: 保持原名单计数和顺序。
+  const shown = names.slice(0, LIMIT).map((name, i) => safe ? maskDisplayName(name, i) : name);
 
   return (
     <Card title={field.key} meta={`名单 · 共 ${names.length} 人`}>
@@ -275,7 +282,10 @@ function NumericPanel({ field }: { field: FieldAnalysis }) {
 
 /** 低基数选项：≤4 种用环形饼图，更多用横向条形（Top 8） */
 function OptionPanel({ field }: { field: FieldAnalysis }) {
-  const entries = counterEntries(field.values);
+  const safe = useProjectionSafe();
+  // 单次提交可能不满足名单分类的最小样本数，仍需脱敏。先计数，再替换显示标签。
+  const entries = counterEntries(field.values).map(([name, count], i): [string, number] =>
+    [safe && isProjectionNameField(field.key) ? maskDisplayName(name, i) : name, count]);
   if (field.uniqueCount <= 4) {
     return (
       <Card title={field.key} meta={`饼图 · 共 ${entries.length} 种`}>
@@ -295,7 +305,9 @@ function OptionPanel({ field }: { field: FieldAnalysis }) {
 
 /** 多选数组：横向条形 Top 8 */
 function ArrayPanel({ field }: { field: FieldAnalysis }) {
-  const entries = counterEntries((field.values as unknown[][]).flat());
+  const safe = useProjectionSafe();
+  const entries = counterEntries((field.values as unknown[][]).flat()).map(([name, count], i): [string, number] =>
+    [safe && isProjectionNameField(field.key) ? maskDisplayName(name, i) : name, count]);
   return (
     <Card title={field.key} meta={`多选 · Top ${Math.min(entries.length, 8)}`}>
       <ChartHBar entries={entries.slice(0, 8)} />
@@ -355,7 +367,7 @@ function EmptyState() {
 
 /* ============================ 主组件 ============================ */
 
-export default function QuickFormDashboard({ records, total }: DashboardProps) {
+export default function QuickFormDashboard({ records, total, fullscreen = false }: DashboardProps) {
   const fields = useMemo(() => analyzeFields(records), [records]);
 
   /** 提交时间线（按小时聚合，最多取最近 24 个时段） */
@@ -403,7 +415,7 @@ export default function QuickFormDashboard({ records, total }: DashboardProps) {
 
   if (records.length === 0) {
     return (
-      <div className="space-y-4">
+      <div className={fullscreen ? "h-full w-full bg-white p-6 md:p-8 flex flex-col min-h-0 space-y-4" : "space-y-4"}>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <StatCard label="已提交" value="0" />
           <StatCard label="收集字段" value="0" />
@@ -416,7 +428,7 @@ export default function QuickFormDashboard({ records, total }: DashboardProps) {
   }
 
   return (
-    <div className="space-y-4">
+    <div className={fullscreen ? "h-full w-full bg-white p-6 md:p-8 flex flex-col min-h-0 space-y-4 overflow-hidden" : "space-y-4"}>
       {/* 顶部 KPI 统计卡行 */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard label="已提交" value={String(total)} />
@@ -425,9 +437,9 @@ export default function QuickFormDashboard({ records, total }: DashboardProps) {
         <StatCard label="最近提交" value={lastSubmit} />
       </div>
 
-      {/* 字段卡两列栅格（名单 / 柱状 / 饼图 / 条形 / 标签） */}
+      {/* 字段卡两列栅格（名单 / 柱状 / 饼图 / 条形 / 标签）。全屏时占满剩余高度，内部卡自适应。 */}
       {chartCards.length > 0 && (
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+        <div className={`grid grid-cols-1 xl:grid-cols-2 ${fullscreen ? "flex-1 min-h-0 auto-rows-fr gap-4" : "gap-4"}`}>
           {chartCards.map(({ kind, field }) => {
             if (kind === "identifier") return <NameRoster key={field.key} field={field} />;
             if (kind === "numeric") return <NumericPanel key={field.key} field={field} />;

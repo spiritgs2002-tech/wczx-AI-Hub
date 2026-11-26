@@ -6,10 +6,11 @@
  *    探究改名只同步任务名，不换 id —— 历史数据始终连续。
  * 2. **任务 id 只存 DB 字段**（`ExplorationActivity.qfTaskId`），不写进 HTML。
  *    AI 每次重生成网页会覆盖 htmlContent，写进 HTML 的绑定一定会丢。
+ *    批量模式仍复用同一个 qfTaskId，不新建任务。
  * 3. **绝不因为 QF 出问题就丢掉学生原有数据**：本模块所有写库失败只返回错误信息，
  *    不抛出（学生提交路径上，行为数据比答案更重要）。
  */
-import { getQfCore, submitQfRecord, QfError, QfErrorCode } from "@/lib/quickform";
+import { getQfCore, submitQfRecord, submitQfRecordBatch, QfError, QfErrorCode } from "@/lib/quickform";
 
 function errText(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -79,6 +80,7 @@ export async function writeCollectedAnswers(
   answers: Record<string, unknown>,
   opts?: {
     replaceRecordId?: string | null;
+    replaceRecordIds?: string[];
     identity?: { studentName?: string; studentNo?: string; studentId?: string };
   }
 ): Promise<WriteAnswersResult> {
@@ -109,10 +111,66 @@ export async function writeCollectedAnswers(
   }
 
   try {
+    if (opts?.replaceRecordIds?.length) {
+      const [record] = await submitQfRecordBatch(qfTaskId, [data], {
+        replaceRecordIds: opts.replaceRecordIds,
+        studentId: opts.identity?.studentId,
+      });
+      return { recordId: record.recordId };
+    }
     const rec = await submitQfRecord(qfTaskId, data, opts?.replaceRecordId, {
       studentId: opts?.identity?.studentId || undefined,
     });
     return { recordId: rec.recordId };
+  } catch (e) {
+    return { error: errText(e) };
+  }
+}
+
+export type WriteAnswerBatchResult =
+  | { recordIds: string[]; written: number; skipped: number }
+  | { error: string };
+
+// MUST KEEP BATCH DATA FLAT: 一行只对应一条明细，过滤无效值后再补允许的身份字段。
+// 📐 CONTRACT: 无有效行时不删除旧数据；🔗 RELATED: submit/route.ts 与 quickform/index.ts。
+// ⛔ DO NOT REVERT: 不展开数组/对象，也不把额外的常见身份、联系方式字段复制到每条记录。
+const PRIVATE_BATCH_FIELD = /身份证|证件号|住址|家庭地址|手机号|手机号码|联系电话|电子邮箱|邮箱|生日|出生日期|^(?:性别|电话|手机|地址|学生ID|用户ID|班级|班级名称|className|student[_ -]?id|user[_ -]?id|phone|mobile|email|address|gender|birth(?:day|date)|id[_ -]?card)$/i;
+
+export async function writeCollectedAnswerBatch(
+  qfTaskId: string,
+  rows: unknown[],
+  opts?: {
+    replaceRecordIds?: string[] | null;
+    identity?: { studentName?: string; studentNo?: string; studentId?: string };
+  },
+): Promise<WriteAnswerBatchResult> {
+  if (!Array.isArray(rows) || rows.length === 0 || rows.length > 200) {
+    return { error: "批量明细必须为 1–200 条" };
+  }
+  const cleanRows: Record<string, unknown>[] = [];
+  for (const row of rows) {
+    if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+    const entries = Object.entries(row).flatMap(([rawKey, value]): [string, string | number | boolean][] => {
+      const key = rawKey.trim();
+      if (!key || key.length > 40 || key.startsWith("_") || PRIVATE_BATCH_FIELD.test(key.normalize("NFKC"))) return [];
+      if (typeof value === "string") return value.trim() ? [[key, value.trim()]] : [];
+      if (typeof value === "boolean" || (typeof value === "number" && Number.isFinite(value))) return [[key, value]];
+      return [];
+    });
+    if (!entries.length) continue;
+    const data = Object.fromEntries(entries);
+    if (!Object.hasOwn(data, "学生姓名") && opts?.identity?.studentName) data["学生姓名"] = opts.identity.studentName;
+    if (!Object.hasOwn(data, "学号") && opts?.identity?.studentNo) data["学号"] = opts.identity.studentNo;
+    cleanRows.push(data);
+  }
+
+  if (!cleanRows.length) return { error: "没有可写入的明细数据" };
+  try {
+    const records = await submitQfRecordBatch(qfTaskId, cleanRows, {
+      replaceRecordIds: opts?.replaceRecordIds ?? undefined,
+      studentId: opts?.identity?.studentId,
+    });
+    return { recordIds: records.map(({ recordId }) => recordId), written: records.length, skipped: rows.length - cleanRows.length };
   } catch (e) {
     return { error: errText(e) };
   }

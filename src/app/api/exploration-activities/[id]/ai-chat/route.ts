@@ -5,6 +5,7 @@ import { verifyToken } from "@/lib/auth";
 import { createDashScopeClient } from "@/lib/ai";
 import { aiQueue } from "@/lib/ai-queue";
 import { buildAiCompanionSystemPrompt } from "@/lib/prompts/ai-companion";
+import { buildCompanionClassDataSummary } from "@/lib/exploration/companion-class-data";
 import { buildImageInjection } from "@/lib/image-library";
 
 // POST: 学生AI伴学对话（流式），并在流结束后保存对话记录
@@ -45,6 +46,27 @@ export async function POST(
 
     const userId = String(payload.userId);
 
+    // MUST SCOPE THE SNAPSHOT TO CURRENT MEMBERSHIP: 登录后可能换班，签发时的 classId 不能授予旧班访问权限。
+    // 📐 CONTRACT: 仅当前在班学生、开关开启且有 QF 任务时加载。🔗 RELATED: companion-class-data.ts。
+    // ⛔ DO NOT REVERT: 缺班级或查询失败时跳过注入，绝不查全班级或阻断对话。
+    let classDataSummary = "";
+    if (exploration.enableClassDataForCompanion && exploration.qfTaskId) {
+      try {
+        const student = await prisma.user.findUnique({
+          where: { id: userId },
+          select: { classId: true, role: true },
+        });
+        if (student?.role === "STUDENT" && student.classId) {
+          classDataSummary = await buildCompanionClassDataSummary({
+            qfTaskId: exploration.qfTaskId,
+            classId: student.classId,
+          });
+        }
+      } catch {
+        // 可选上下文不可用时，沿用原有伴学提示词。
+      }
+    }
+
     // 构建system prompt（结合预生成提示词+实时上下文）
     let systemPrompt = buildAiCompanionSystemPrompt({
       aiCompanionPrompt: exploration.aiCompanionPrompt,
@@ -53,6 +75,7 @@ export async function POST(
       taskTitle: exploration.SubProject?.task?.title,
       taskObjectives: exploration.SubProject?.task?.objectives,
       context: context || {},
+      classDataSummary,
     });
 
     // 课堂引用的图片组：AI 伴学可智能发送组内图片（与 chat 路由同款注入）

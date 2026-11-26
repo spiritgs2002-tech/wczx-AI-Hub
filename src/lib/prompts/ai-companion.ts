@@ -1359,6 +1359,7 @@ export function buildAiCompanionSystemPrompt(args: {
   taskTitle?: string;
   taskObjectives?: string;
   context?: Record<string, any>;
+  classDataSummary?: string;
 }): string {
   let prompt = "";
 
@@ -1408,6 +1409,19 @@ export function buildAiCompanionSystemPrompt(args: {
       prompt += `\n- 滚动进度：${args.context.scrollPercent}%`;
     }
     prompt += "\n\n请结合学生的当前状态给出有针对性的指导。";
+  }
+
+  // MUST KEEP THE DISABLED PROMPT IDENTICAL: 无班级快照时不新增换行或规则。
+  // 📐 CONTRACT: 只追加服务端匿名聚合。🔗 RELATED: companion-class-data.ts、探究 ai-chat 路由。
+  // ⛔ DO NOT REVERT: 不把实时班级数据写入预生成提示词或前端 iframe。
+  const summary = args.classDataSummary?.trim();
+  if (summary) {
+    const heading = "## 班级数据快照（仅聚合、匿名）";
+    prompt += `\n\n${summary.startsWith(heading) ? summary : `${heading}\n${summary}`}`;
+    prompt += `\n\n【班级数据使用规则】
+- 只能引用上述聚合值。禁止输出姓名、学号、原始答卷或任何未给出的个体数值。
+- 先追问学生想解决什么问题，再引导比较平均数与中位数或众数，不直接代替学生下结论。
+- 如果数据不足以回答，如实说明“目前没有可用的班级数据”，不得编造。`;
   }
 
   // 统一数学公式输出格式：本渲染器只识别 $...$ / $$...$$，

@@ -85,6 +85,8 @@ export async function POST(req: NextRequest) {
    - 计分/闯关类：__gameState__.score = 当前得分; __gameState__.gameLevel = 第几关; __gameState__.maxScore = 满分
    - 调查表类（自定义控件如卡片选择、星级评分）：__gameState__.answers = { 题目: 值 }
      （标准 input/select/textarea 系统自动采集，无需挂载）
+   - 批量明细表类（如每片树叶一行、每组多行数据）：__gameState__.answersBatch = [{ 字段: 值 }, ...]
+     （数组每项 = 一条明细，每行一个扁平对象，字段名用可读中文；系统会把数组展开为多条记录，学生只需提交一次；不要塞进 answers）
    - 拖拽/连线/排序类：__gameState__.placements = { 元素: 目标位置 }
    - 绘图/轨迹类：__gameState__.artwork = { 数据点或操作描述 }（canvas 画面系统会自动截图）
    - 通用：__gameState__.completedSections = ["环节名", ...]
