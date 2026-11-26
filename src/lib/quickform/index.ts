@@ -5,8 +5,9 @@
  * 不直接 new QuickFormCore / PrismaAdapter。
  */
 import { prisma } from "@/lib/prisma";
-import { QuickFormCore } from "@/lib/quickform-core";
+import { QuickFormCore, QfError, QfErrorCode } from "@/lib/quickform-core";
 import type { QfRecord } from "@/lib/quickform-core";
+import { generateRecordId } from "@/lib/quickform-core/id";
 import { PrismaAdapter } from "./prisma-adapter";
 
 let adapter: PrismaAdapter | null = null;
@@ -41,6 +42,45 @@ export async function submitQfRecord(
     return qfCore.replaceRecord(taskId, replaceRecordId, data, meta);
   }
   return qfCore.submit(taskId, data, meta);
+}
+
+// ⚠️ GOTCHA: 单条仍走 core.replaceRecord，批量才在此用同一事务替换多条。
+// 📐 CONTRACT: 输入是已清洗的扁平明细，返回顺序与入参一致；🔗 RELATED: qf-binding.ts。
+// ⛔ DO NOT REVERT: 不能把删除和插入拆开，插入失败时必须保留旧记录。
+export async function submitQfRecordBatch(
+  taskId: string,
+  rows: Array<Record<string, unknown>>,
+  opts?: { replaceRecordIds?: string[]; ip?: string; studentId?: string },
+): Promise<QfRecord[]> {
+  if (!rows.length) return [];
+  const task = await getQfAdapter().getTask(taskId);
+  if (!task) throw new QfError(QfErrorCode.TASK_NOT_FOUND, `任务不存在: ${taskId}`);
+  if (task.status !== "open") throw new QfError(QfErrorCode.TASK_CLOSED, `任务已关闭收集: ${task.name}`);
+
+  const submittedAt = new Date().toISOString();
+  const studentId = opts?.studentId || null;
+  const records = rows.map((row) => ({
+    id: generateRecordId(),
+    taskId,
+    dataJson: JSON.stringify({ ...row, ...(opts?.ip ? { _ip: opts.ip } : {}) }),
+    studentId,
+    submittedAt: new Date(submittedAt),
+  }));
+
+  await prisma.$transaction(async (tx) => {
+    if (opts?.replaceRecordIds?.length) {
+      await tx.qfRecord.deleteMany({ where: { taskId, id: { in: opts.replaceRecordIds } } });
+    }
+    await tx.qfRecord.createMany({ data: records });
+  });
+
+  return records.map(({ id, dataJson }) => ({
+    recordId: id,
+    taskId,
+    submittedAt,
+    studentId: studentId ?? undefined,
+    data: { ...JSON.parse(dataJson), _record_id: id, _submitted_at: submittedAt },
+  }));
 }
 
 /**

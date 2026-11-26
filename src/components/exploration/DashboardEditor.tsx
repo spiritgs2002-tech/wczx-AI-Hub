@@ -23,6 +23,7 @@ const CHART_TYPES: { value: AiDashboardChart["type"]; label: string }[] = [
   { value: "ranking", label: "排行榜" },
   { value: "wordcloud", label: "词云" },
   { value: "scatter", label: "散点图" },
+  { value: "boxplot", label: "箱线图" },
 ];
 
 const THEMES: { value: AiDashboardTheme; label: string }[] = [
@@ -39,6 +40,11 @@ const AGGS: { value: AiDashboardKpi["agg"]; label: string }[] = [
   { value: "sum", label: "求和" },
   { value: "max", label: "最大" },
   { value: "min", label: "最小" },
+  { value: "median", label: "中位数" },
+  { value: "mode", label: "众数" },
+  { value: "range", label: "极差" },
+  { value: "variance", label: "方差" },
+  { value: "stddev", label: "标准差" },
 ];
 
 function emptyChart(fields: string[]): AiDashboardChart {
@@ -57,11 +63,13 @@ function useLimit(t: AiDashboardChart["type"]): boolean {
 export default function DashboardEditor({
   config,
   fields,
+  numericFields = [],
   onSave,
   onCancel,
 }: {
   config: AiDashboardConfig;
   fields: string[];
+  numericFields?: string[];
   onSave: (config: AiDashboardConfig) => void;
   onCancel: () => void;
 }) {
@@ -95,14 +103,21 @@ export default function DashboardEditor({
   const kpis = draft.kpis || [];
   const gridCols = draft.gridCols || 2;
 
-  const fieldSelect = (value: string | undefined, onChange: (v: string | undefined) => void) => (
+  // MUST FILTER BOX PLOT FIELDS: 字段名本身不能判断数值类型，类型由调用方提供。
+  // 📐 CONTRACT: numericFields 可省略，旧图继续使用全量 fields；🔗 RELATED: dashboard-config.ts 数值口径。
+  // ⛔ DO NOT REVERT: 切换到箱线图时清掉不匹配的旧字段，避免保存后才发现没有数据。
+  const fieldSelect = (
+    value: string | undefined,
+    onChange: (v: string | undefined) => void,
+    options = fields
+  ) => (
     <select
       value={value || ""}
       onChange={(e) => onChange(e.target.value || undefined)}
       className={inputCls}
     >
       <option value="">（选择字段）</option>
-      {fields.map((f) => (
+      {options.map((f) => (
         <option key={f} value={f}>
           {f}
         </option>
@@ -196,6 +211,9 @@ export default function DashboardEditor({
                 <div className="w-40">
                   {fieldSelect(k.field || undefined, (v) => setKpi(i, { field: v || null }))}
                 </div>
+                {/* MUST KEEP CATEGORY GROUPING: 数值字段不能作为分组；🔗 RELATED: dashboard-config.ts 清洗与渲染。
+                    ⛔ DO NOT REVERT: 只筛选分组下拉，不能改变原字段下拉和旧配置。 */}
+                <label className="w-40 text-xs">分组（可选）{fieldSelect(k.groupBy, (v) => setKpi(i, { groupBy: v }), fields.filter((f) => !numericFields.includes(f)))}</label>
                 <select
                   value={k.agg}
                   onChange={(e) => setKpi(i, { agg: e.target.value as AiDashboardKpi["agg"] })}
@@ -254,7 +272,12 @@ export default function DashboardEditor({
                 <div className="flex items-center gap-2 flex-wrap">
                   <select
                     value={c.type}
-                    onChange={(e) => setChart(i, { type: e.target.value as AiDashboardChart["type"] })}
+                    onChange={(e) => {
+                      const type = e.target.value as AiDashboardChart["type"];
+                      setChart(i, type === "boxplot" && !numericFields.includes(c.field)
+                        ? { type, field: numericFields[0] || "" }
+                        : { type });
+                    }}
                     className={`${inputCls} w-28 shrink-0`}
                   >
                     {CHART_TYPES.map((t) => (
@@ -347,7 +370,8 @@ export default function DashboardEditor({
                     <>
                       <label className="flex flex-col gap-1 text-xs text-gray-500">
                         字段
-                        {fieldSelect(c.field, (v) => setChart(i, { field: v || "" }))}
+                        {fieldSelect(c.field, (v) => setChart(i, { field: v || "" }),
+                          c.type === "boxplot" ? numericFields : fields)}
                       </label>
                       {useLimit(c.type) && (
                         <label className="flex flex-col gap-1 text-xs text-gray-500">
@@ -364,6 +388,8 @@ export default function DashboardEditor({
                       )}
                     </>
                   )}
+                  {/* 散点图也可用分组字段给不同类别的点着色（如樟树/银杏/石楠），因此与箱线图/条形图一样开放分组下拉。 */}
+                  {c.type !== "ranking" && <label className="flex flex-col gap-1 text-xs text-gray-500">分组（可选）{fieldSelect(c.groupBy, (v) => setChart(i, { groupBy: v }), fields.filter((f) => !numericFields.includes(f)))}</label>}
                   {/* ⚠️ GOTCHA：解读占满整行（col-span-full）而非 col-span-2——ranking/scatter 有 3 个字段控件，
                       若解读只占 2 列会与字段抢行、留出空列，看起来「排列错乱」。 */}
                   <label className="flex flex-col gap-1 text-xs text-gray-500 col-span-full">
@@ -387,7 +413,10 @@ export default function DashboardEditor({
         <Button variant="outline" onClick={onCancel}>
           放弃
         </Button>
-        <Button theme="primary" onClick={() => onSave(draft)}>
+        <Button theme="primary"
+          disabled={charts.some((chart) => chart.type === "boxplot" && !chart.field)}
+          onClick={() => onSave(draft)}
+        >
           保存
         </Button>
       </div>

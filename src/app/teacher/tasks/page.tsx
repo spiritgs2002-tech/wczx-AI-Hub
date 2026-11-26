@@ -22,6 +22,7 @@ import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, us
 import { SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy, useSortable, arrayMove } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import Markdown from "@/components/Markdown";
+import { normalizeQuestionType } from "@/lib/question-type";
 import {
   AddIcon,
   DeleteIcon,
@@ -43,6 +44,7 @@ import {
 } from "tdesign-icons-react";
 import Link from "next/link";
 import TeacherLayout from "@/components/layout/TeacherLayout";
+import GroupManagerDialog from "@/components/groups/GroupManagerDialog";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip,
   PieChart, Pie, Legend, ResponsiveContainer,
@@ -264,8 +266,142 @@ function writeTasksViewState(state: TasksViewState) {
   }
 }
 
+// MUST KEEP SUBJECTIVE ANSWERS AS TEXT: 出题与快编共享主观题判断，JSON 保存前清空选项。
+// 📐 CONTRACT: 仅切换主客观时重置答案；🔗 RELATED: quiz.ts、题目管理页、QuizPanel.tsx。
+// ⛔ DO NOT REVERT: 不能用 A/B/C/D 的默认答案代替待填写的参考答案。
+function isSubjectiveQuizType(value: unknown) {
+  const type = normalizeQuestionType(value);
+  return type === "FILL_BLANK" || type === "SHORT_ANSWER";
+}
+
+function quizTypePatch(question: { type: string }, type: string) {
+  if (isSubjectiveQuizType(question.type) === isSubjectiveQuizType(type)) return { type };
+  return { type, answer: isSubjectiveQuizType(type) ? "" : type === "TRUE_FALSE" ? "T" : "A" };
+}
+
+function QuizReferenceAnswer({ type, value, onChange }: {
+  type: string | null; value?: string; onChange: (value: string) => void;
+}) {
+  return type === "SHORT_ANSWER"
+    ? <Textarea value={value ?? ""} onChange={onChange} rows={3} placeholder="评分要点" />
+    : <Input value={value ?? ""} onChange={onChange} size="small" placeholder="参考答案（多个答案用 | 分隔）" />;
+}
+
+// MUST KEEP A STABLE COMPONENT TYPE: 编辑答案会重渲染页面，卡片定义在外层才能保留输入焦点。
+function SortableQuizQuestion({ q, idx, onUpdate, onMoveUp, onMoveDown, total }: { q: any; idx: number; onUpdate: (field: string, value: any) => void; onMoveUp: () => void; onMoveDown: () => void; total: number }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: idx });
+  const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.8 : 1 };
+  const type = normalizeQuestionType(q.type);
+  const subjective = isSubjectiveQuizType(type);
+  const options = subjective ? {} : typeof q.options === "string" ? JSON.parse(q.options || "{}") : (q.options || {});
+  return (
+    <div ref={setNodeRef} style={style} className={`bg-[var(--primary-lighter)] rounded-lg p-3 text-sm ${isDragging ? "shadow-lg" : ""}`}>
+      <div className="flex items-start gap-2">
+        <div className="flex flex-col gap-0.5 p-1 rounded">
+          <span className="text-xs text-[var(--muted-light)] font-bold">↑</span>
+          <button type="button" onClick={onMoveUp} disabled={idx === 0} className="w-5 h-4 flex items-center justify-center text-[var(--primary)] hover:text-[var(--primary)] disabled:opacity-30 disabled:cursor-not-allowed text-xs font-bold">▲</button>
+          <button type="button" onClick={onMoveDown} disabled={idx === total - 1} className="w-5 h-4 flex items-center justify-center text-[var(--primary)] hover:text-[var(--primary)] disabled:opacity-30 disabled:cursor-not-allowed text-xs font-bold">▼</button>
+          <span className="text-xs text-[var(--muted-light)] font-bold">↓</span>
+        </div>
+        <span {...attributes} {...listeners} className="cursor-grab text-[var(--muted-light)] hover:text-[var(--muted)] select-none mt-1" title="拖拽排序">⋮⋮</span>
+        <span className="font-medium text-[var(--muted)]">{idx + 1}.</span>
+        <div className="flex-1 space-y-2">
+          <Input value={q.content} onChange={(v) => onUpdate("content", v)} size="small" />
+          {!subjective && <div className="grid grid-cols-2 gap-1">
+            {["A","B","C","D"].map((opt) => (
+              <div key={opt} className="flex items-center gap-1">
+                <span className="text-xs text-[var(--muted-light)]">{opt}.</span>
+                <Input value={options[opt] || ""} onChange={(v) => onUpdate("options", { ...options, [opt]: v })} size="small" />
+              </div>
+            ))}
+          </div>}
+          <div className="flex gap-2 items-center text-xs">
+            <span className="text-[var(--muted-light)]">题型：</span>
+            <select value={subjective ? type! : q.type || "SINGLE_CHOICE"} onChange={(e) => onUpdate("type", e.target.value)} className="border rounded px-1 py-0.5">
+              <option value="SINGLE_CHOICE">单选</option><option value="MULTIPLE_CHOICE">多选</option><option value="TRUE_FALSE">判断</option>
+              <option value="FILL_BLANK">填空</option><option value="SHORT_ANSWER">简答</option>
+            </select>
+            <span className="text-[var(--muted-light)] ml-2">答案：</span>
+            {subjective ? (
+              <QuizReferenceAnswer type={type} value={q.answer} onChange={(value) => onUpdate("answer", value)} />
+            ) : q.type === "TRUE_FALSE" ? (
+              <select value={q.answer || "T"} onChange={(e) => onUpdate("answer", e.target.value)} className="border rounded px-1 py-0.5"><option value="T">正确</option><option value="F">错误</option></select>
+            ) : q.type !== "MULTIPLE_CHOICE" ? (
+              <select value={q.answer || "A"} onChange={(e) => onUpdate("answer", e.target.value)} className="border rounded px-1 py-0.5"><option value="A">A</option><option value="B">B</option><option value="C">C</option><option value="D">D</option></select>
+            ) : (
+              <div className="flex gap-2 items-center">
+                {["A","B","C","D"].map((opt) => {
+                  const list = (q.answer || "").split(",").map((s: string) => s.trim()).filter(Boolean);
+                  return <label key={opt} className="flex items-center gap-1 cursor-pointer"><input type="checkbox" checked={list.includes(opt)} onChange={() => { const nl = list.includes(opt) ? list.filter((s: string) => s !== opt) : [...list, opt]; onUpdate("answer", nl.join(",")); }} /><span>{opt}</span></label>;
+                })}
+              </div>
+            )}
+            <span className="text-[var(--muted-light)] ml-2">难度：</span>
+            <select value={q.difficulty || "BASIC"} onChange={(e) => onUpdate("difficulty", e.target.value)} className="border rounded px-1 py-0.5">
+              <option value="BASIC">基础</option><option value="INTERMEDIATE">提升</option><option value="ADVANCED">拓展</option>
+            </select>
+          </div>
+          <div><span className="text-xs text-[var(--muted-light)]">答案解析</span><Input value={q.explanation || ""} onChange={(v) => onUpdate("explanation", v)} size="small" placeholder="答案解析（可为空）" /></div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function TeacherTasksPage() {
   const router = useRouter();
+  // MUST LOAD GROUPS ON DEMAND: 课堂列表不携带名单；🔗 RELATED: GroupManagerDialog。
+  // 📐 CONTRACT: 分组单独保存；⛔ DO NOT REVERT: 不修改原导出与按需拉详情链路。
+  const [groupTask, setGroupTask] = useState<{ id: string; title: string } | null>(null);
+  // MUST KEEP CASE EXPORT INDEPENDENT: 案例与三个原有导出入口各用自己的接口和状态。
+  // 📐 CONTRACT: 一个请求生成预览与 Word；🔗 RELATED: tasks/[taskId]/case-study/route.ts。
+  // ⛔ DO NOT REVERT: 模型正文通过 React 文本渲染，不作为 HTML 插入。
+  const [caseStudyTask, setCaseStudyTask] = useState<string | null>(null);
+  const [caseStudy, setCaseStudy] = useState<{
+    title: string;
+    sections: Record<"summary" | "practice" | "outcomes" | "experience", string>;
+    wordCount: Record<"summary" | "practice" | "outcomes" | "experience" | "total", number>;
+    warnings: string[]; dataGaps: string[]; filename: string; docxBase64: string;
+  } | null>(null);
+  const [caseStudyError, setCaseStudyError] = useState("");
+  const caseStudyPending = useRef(false);
+
+  const openCaseStudy = async (taskId: string) => {
+    if (caseStudyPending.current) return;
+    caseStudyPending.current = true;
+    setCaseStudyTask(taskId);
+    setCaseStudy(null);
+    setCaseStudyError("");
+    try {
+      const token = localStorage.getItem("token") || "";
+      const res = await fetch(`/api/tasks/${taskId}/case-study`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "案例生成失败");
+      setCaseStudy(data);
+    } catch (error) {
+      setCaseStudyError(error instanceof Error ? error.message : "案例生成失败");
+    } finally {
+      caseStudyPending.current = false;
+    }
+  };
+
+  const downloadCaseStudy = () => {
+    if (!caseStudy) return;
+    const bytes = Uint8Array.from(atob(caseStudy.docxBase64), (char) => char.charCodeAt(0));
+    const url = URL.createObjectURL(new Blob([bytes], {
+      type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = caseStudy.filename;
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
   const [tasks, setTasks] = useState<LearningTask[]>([]);
   const [classes, setClasses] = useState<ClassItem[]>([]);
   const [templates, setTemplates] = useState<AnalysisTemplate[]>([]);
@@ -791,61 +927,6 @@ export default function TeacherTasksPage() {
     }
   };
 
-  function SortableQuizQuestion({ q, idx, onUpdate, onMoveUp, onMoveDown, total }: { q: any; idx: number; onUpdate: (field: string, value: any) => void; onMoveUp: () => void; onMoveDown: () => void; total: number }) {
-    const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: idx });
-    const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.8 : 1 };
-    const options = typeof q.options === "string" ? JSON.parse(q.options || "{}") : (q.options || {});
-    return (
-      <div ref={setNodeRef} style={style} className={`bg-[var(--primary-lighter)] rounded-lg p-3 text-sm ${isDragging ? "shadow-lg" : ""}`}>
-        <div className="flex items-start gap-2">
-          <div className="flex flex-col gap-0.5 p-1 rounded">
-            <span className="text-xs text-[var(--muted-light)] font-bold">↑</span>
-            <button type="button" onClick={onMoveUp} disabled={idx === 0} className="w-5 h-4 flex items-center justify-center text-[var(--primary)] hover:text-[var(--primary)] disabled:opacity-30 disabled:cursor-not-allowed text-xs font-bold">▲</button>
-            <button type="button" onClick={onMoveDown} disabled={idx === total - 1} className="w-5 h-4 flex items-center justify-center text-[var(--primary)] hover:text-[var(--primary)] disabled:opacity-30 disabled:cursor-not-allowed text-xs font-bold">▼</button>
-            <span className="text-xs text-[var(--muted-light)] font-bold">↓</span>
-          </div>
-          <span {...attributes} {...listeners} className="cursor-grab text-[var(--muted-light)] hover:text-[var(--muted)] select-none mt-1" title="拖拽排序">⋮⋮</span>
-          <span className="font-medium text-[var(--muted)]">{idx + 1}.</span>
-          <div className="flex-1 space-y-2">
-            <Input value={q.content} onChange={(v) => onUpdate("content", v)} size="small" />
-            <div className="grid grid-cols-2 gap-1">
-              {["A","B","C","D"].map((opt) => (
-                <div key={opt} className="flex items-center gap-1">
-                  <span className="text-xs text-[var(--muted-light)]">{opt}.</span>
-                  <Input value={options[opt] || ""} onChange={(v) => onUpdate("options", { ...options, [opt]: v })} size="small" />
-                </div>
-              ))}
-            </div>
-            <div className="flex gap-2 items-center text-xs">
-              <span className="text-[var(--muted-light)]">题型：</span>
-              <select value={q.type || "SINGLE_CHOICE"} onChange={(e) => onUpdate("type", e.target.value)} className="border rounded px-1 py-0.5">
-                <option value="SINGLE_CHOICE">单选</option><option value="MULTIPLE_CHOICE">多选</option><option value="TRUE_FALSE">判断</option>
-              </select>
-              <span className="text-[var(--muted-light)] ml-2">答案：</span>
-              {q.type === "TRUE_FALSE" ? (
-                <select value={q.answer || "T"} onChange={(e) => onUpdate("answer", e.target.value)} className="border rounded px-1 py-0.5"><option value="T">正确</option><option value="F">错误</option></select>
-              ) : q.type !== "MULTIPLE_CHOICE" ? (
-                <select value={q.answer || "A"} onChange={(e) => onUpdate("answer", e.target.value)} className="border rounded px-1 py-0.5"><option value="A">A</option><option value="B">B</option><option value="C">C</option><option value="D">D</option></select>
-              ) : (
-                <div className="flex gap-2 items-center">
-                  {["A","B","C","D"].map((opt) => {
-                    const list = (q.answer || "").split(",").map((s: string) => s.trim()).filter(Boolean);
-                    return <label key={opt} className="flex items-center gap-1 cursor-pointer"><input type="checkbox" checked={list.includes(opt)} onChange={() => { const nl = list.includes(opt) ? list.filter((s: string) => s !== opt) : [...list, opt]; onUpdate("answer", nl.join(",")); }} /><span>{opt}</span></label>;
-                  })}
-                </div>
-              )}
-              <span className="text-[var(--muted-light)] ml-2">难度：</span>
-              <select value={q.difficulty || "BASIC"} onChange={(e) => onUpdate("difficulty", e.target.value)} className="border rounded px-1 py-0.5">
-                <option value="BASIC">基础</option><option value="INTERMEDIATE">提升</option><option value="ADVANCED">拓展</option>
-              </select>
-            </div>
-            <div><span className="text-xs text-[var(--muted-light)]">答案解析</span><Input value={q.explanation || ""} onChange={(v) => onUpdate("explanation", v)} size="small" placeholder="答案解析（可为空）" /></div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   const handleQuizDragEnd = (event: any) => {
     const { active, over } = event;
     if (active.id !== over?.id) {
@@ -1232,6 +1313,10 @@ export default function TeacherTasksPage() {
   const [explorationHasSubmissions, setExplorationHasSubmissions] = useState(false);
   // AI伴学
   const [explorationEnableAiCompanion, setExplorationEnableAiCompanion] = useState(false);
+  // MUST LOAD THE SAVED OPT-IN: 新建重置，编辑以详情为准，两种保存都带开关。
+  // 📐 CONTRACT: 仅伴学启用时可切换。🔗 RELATED: 探究 POST/PUT 与 ai-chat 路由。
+  // ⛔ DO NOT REVERT: 不从瘦身列表推断此值，避免编辑时误覆盖已保存的选择。
+  const [explorationEnableClassDataForCompanion, setExplorationEnableClassDataForCompanion] = useState(false);
   const [aiCompanionStatus, setAiCompanionStatus] = useState<"idle" | "injecting" | "analyzing" | "ready" | "error">("idle");
   const [aiCompanionPromptText, setAiCompanionPromptText] = useState<string>("");
   const [showAiCompanionPrompt, setShowAiCompanionPrompt] = useState(false);
@@ -1348,6 +1433,7 @@ export default function TeacherTasksPage() {
     syncConfirmedInjection(false);
     setOriginalHtmlForInjection("");
     setExplorationEnableAiCompanion(false);
+    setExplorationEnableClassDataForCompanion(false);
     setAiCompanionStatus("idle");
     setAiCompanionPromptText("");
     setShowAiCompanionPrompt(false);
@@ -1748,6 +1834,7 @@ export default function TeacherTasksPage() {
             htmlContent: explorationHtml,
             enableSubmission: explorationEnableSubmission,
             enableAiCompanion: explorationEnableAiCompanion,
+            enableClassDataForCompanion: explorationEnableClassDataForCompanion,
             aiCompanionPrompt: aiCompanionPromptText || undefined,
             designPrompt: initialPrompt,
             analysisPrompt: explorationPrompt,
@@ -1764,6 +1851,7 @@ export default function TeacherTasksPage() {
             htmlContent: explorationHtml,
             enableSubmission: explorationEnableSubmission,
             enableAiCompanion: explorationEnableAiCompanion,
+            enableClassDataForCompanion: explorationEnableClassDataForCompanion,
             designPrompt: initialPrompt,
             analysisPrompt: explorationPrompt,
             chatHistory: chatMessages,
@@ -2254,6 +2342,7 @@ export default function TeacherTasksPage() {
           return;
         }
         const detail = await detailRes.json();
+        setExplorationEnableClassDataForCompanion(detail.enableClassDataForCompanion === true);
         if (detail.htmlContent) {
           // GET 详情现在返回纯净稿（不含提交/伴学注入），源码区直接用；
           // 预览区本地渲染注入版（按 detail 的开关 + collectProfile，与学生端一致）。
@@ -2788,15 +2877,19 @@ export default function TeacherTasksPage() {
           throw new Error("JSON 格式不正确，需包含 questions 数组");
         }
         // 标准化题目
-        const standardized = imported.map((q: any, i: number) => ({
-          type: q.type || "SINGLE_CHOICE",
-          content: q.content || "",
-          options: typeof q.options === "string" ? q.options : JSON.stringify(q.options || {}),
-          answer: q.answer || "A",
-          difficulty: q.difficulty || "BASIC",
-          explanation: q.explanation || "",
-          order: quizDesignQuestions.length + i,
-        }));
+        const standardized = imported.map((q: any, i: number) => {
+          const type = normalizeQuestionType(q.type);
+          const subjective = isSubjectiveQuizType(type);
+          return {
+            type: subjective ? type : q.type || "SINGLE_CHOICE",
+            content: q.content || "",
+            options: subjective ? {} : typeof q.options === "string" ? q.options : JSON.stringify(q.options || {}),
+            answer: subjective ? String(q.answer ?? "") : q.answer || "A",
+            difficulty: q.difficulty || "BASIC",
+            explanation: q.explanation || "",
+            order: quizDesignQuestions.length + i,
+          };
+        });
         setQuizDesignQuestions((prev) => [...prev, ...standardized]);
         MessagePlugin.success(`成功导入 ${standardized.length} 道题`);
       } catch (err: any) {
@@ -2813,6 +2906,13 @@ export default function TeacherTasksPage() {
   const handleSaveQuiz = async () => {
     if (!quizDesignTitle.trim()) {
       MessagePlugin.warning("请输入作业名称");
+      return;
+    }
+    const unanswered = quizDesignQuestions.findIndex((q) =>
+      isSubjectiveQuizType(q.type) && !String(q.answer ?? "").trim()
+    );
+    if (unanswered >= 0) {
+      MessagePlugin.warning(`第 ${unanswered + 1} 题：请填写参考答案或评分要点`);
       return;
     }
     setSavingQuiz(true);
@@ -2855,10 +2955,13 @@ export default function TeacherTasksPage() {
       const updateQuestionsRes = await fetch(`/api/quiz-activities/${quizId}/questions`, {
         method: "PUT",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ questions: quizDesignQuestions }),
+        body: JSON.stringify({
+          questions: quizDesignQuestions.map((q) => isSubjectiveQuizType(q.type) ? { ...q, options: {} } : q),
+        }),
       });
       if (!updateQuestionsRes.ok) {
-        console.error("题目保存失败");
+        const error = await updateQuestionsRes.json().catch(() => ({}));
+        throw new Error(error.error || "题目保存失败");
       }
       MessagePlugin.success("作业已保存");
       exitQuizDesign();
@@ -3836,6 +3939,13 @@ export default function TeacherTasksPage() {
                             }}
                           />
                         </Tooltip>
+                        <Button theme="primary" variant="text" size="small" onClick={() => void openCaseStudy(task.id)}>
+                          生成AI应用案例
+                        </Button>
+                        <Tooltip content="分组管理">
+                          <Button theme="primary" variant="text" size="small" icon={<EditIcon />} aria-label="分组管理"
+                            onClick={() => setGroupTask({ id: task.id, title: task.title })} />
+                        </Tooltip>
                         <Tooltip content="删除课堂">
                           <Button
                             theme="primary"
@@ -3999,7 +4109,9 @@ export default function TeacherTasksPage() {
                                               total={quizDesignQuestions.length}
                                               onUpdate={(field, value) => {
                                                 const updated = [...quizDesignQuestions];
-                                                updated[idx] = { ...updated[idx], [field]: value };
+                                                updated[idx] = field === "type"
+                                                  ? { ...updated[idx], ...quizTypePatch(updated[idx], value) }
+                                                  : { ...updated[idx], [field]: value };
                                                 setQuizDesignQuestions(updated);
                                               }}
                                               onMoveUp={() => {
@@ -4212,7 +4324,9 @@ export default function TeacherTasksPage() {
                               <div className="space-y-3">
                                 <div className="text-xs font-medium text-[var(--muted)]">题目（共 {quizDesignQuestions.length} 道，可直接修改）</div>
                                 {quizDesignQuestions.map((question, idx) => {
-                                  const options = typeof question.options === "string" ? JSON.parse(question.options || "{}") : (question.options || {});
+                                  const type = normalizeQuestionType(question.type);
+                                  const subjective = isSubjectiveQuizType(type);
+                                  const options = subjective ? {} : typeof question.options === "string" ? JSON.parse(question.options || "{}") : (question.options || {});
                                   return (
                                     <div key={idx} className="bg-[var(--primary-lighter)] rounded-lg p-3 text-sm">
                                       <div className="flex items-start gap-2">
@@ -4223,21 +4337,26 @@ export default function TeacherTasksPage() {
                                         <span className="font-medium text-[var(--muted)] mt-1">{idx + 1}.</span>
                                         <div className="flex-1 space-y-2">
                                           <Input value={question.content} onChange={(v) => { const updated = [...quizDesignQuestions]; updated[idx] = { ...updated[idx], content: v }; setQuizDesignQuestions(updated); }} size="small" />
-                                          <div className="grid grid-cols-2 gap-1">
+                                          {!subjective && <div className="grid grid-cols-2 gap-1">
                                             {["A", "B", "C", "D"].map((opt) => (
                                               <div key={opt} className="flex items-center gap-1">
                                                 <span className="text-xs text-[var(--muted-light)]">{opt}.</span>
                                                 <Input value={options[opt] || ""} onChange={(v) => { const updated = [...quizDesignQuestions]; const newOpts = { ...options, [opt]: v }; updated[idx] = { ...updated[idx], options: newOpts }; setQuizDesignQuestions(updated); }} size="small" />
                                               </div>
                                             ))}
-                                          </div>
+                                          </div>}
                                           <div className="flex gap-2 items-center text-xs">
                                             <span className="text-[var(--muted-light)]">题型：</span>
-                                            <select value={question.type || "SINGLE_CHOICE"} onChange={(e) => { const updated = [...quizDesignQuestions]; updated[idx] = { ...updated[idx], type: e.target.value }; setQuizDesignQuestions(updated); }} className="border rounded px-1 py-0.5">
+                                            <select value={subjective ? type! : question.type || "SINGLE_CHOICE"} onChange={(e) => { const updated = [...quizDesignQuestions]; updated[idx] = { ...updated[idx], ...quizTypePatch(question, e.target.value) }; setQuizDesignQuestions(updated); }} className="border rounded px-1 py-0.5">
                                               <option value="SINGLE_CHOICE">单选</option><option value="MULTIPLE_CHOICE">多选</option><option value="TRUE_FALSE">判断</option>
+                                              <option value="FILL_BLANK">填空</option><option value="SHORT_ANSWER">简答</option>
                                             </select>
                                             <span className="text-[var(--muted-light)] ml-2">答案：</span>
-                                            {question.type === "TRUE_FALSE" ? (
+                                            {subjective ? (
+                                              <QuizReferenceAnswer type={type} value={question.answer} onChange={(answer) =>
+                                                setQuizDesignQuestions((items) => items.map((item, i) => i === idx ? { ...item, answer } : item))
+                                              } />
+                                            ) : question.type === "TRUE_FALSE" ? (
                                               <select value={question.answer || "T"} onChange={(e) => { const updated = [...quizDesignQuestions]; updated[idx] = { ...updated[idx], answer: e.target.value }; setQuizDesignQuestions(updated); }} className="border rounded px-1 py-0.5">
                                                 <option value="T">正确</option><option value="F">错误</option>
                                               </select>
@@ -4324,6 +4443,41 @@ export default function TeacherTasksPage() {
             />
           </div>
         )}
+
+        {groupTask && <GroupManagerDialog taskId={groupTask.id} taskTitle={groupTask.title} visible
+          onClose={() => setGroupTask(null)} onSaved={() => setGroupTask(null)} />}
+        <Dialog
+          header="AI 应用案例初稿"
+          visible={caseStudyTask !== null}
+          onClose={() => { if (!caseStudyPending.current) setCaseStudyTask(null); }}
+          closeOnOverlayClick={false}
+          closeOnEscKeydown={false}
+          footer={null}
+          width={760}
+        >
+          <div className="max-h-[65vh] overflow-y-auto space-y-4">
+            {!caseStudy && !caseStudyError && <p role="status">正在生成案例与 Word，请稍候…</p>}
+            {caseStudyError && <p role="alert" className="text-red-600">{caseStudyError}</p>}
+            {caseStudy && <>
+              <h3 className="text-lg font-semibold">{caseStudy.title}</h3>
+              <p className="text-sm">全文 {caseStudy.wordCount.total} 字</p>
+              {caseStudy.warnings.length > 0 && <ul className="list-disc pl-5 text-sm text-amber-700">
+                {caseStudy.warnings.map((warning, index) => <li key={index}>{warning}</li>)}
+              </ul>}
+              {caseStudy.dataGaps.length > 0 && <p className="text-sm text-amber-700">待补实测数据：{caseStudy.dataGaps.join("、")}</p>}
+              {([
+                ["summary", "案例摘要"], ["practice", "主要做法"],
+                ["outcomes", "成果成效"], ["experience", "经验总结"],
+              ] as const).map(([key, label]) => <section key={key}>
+                <h4 className="font-semibold">{label} · {caseStudy.wordCount[key]} 字</h4>
+                <p className="whitespace-pre-wrap text-sm">{caseStudy.sections[key]}</p>
+              </section>)}
+            </>}
+          </div>
+          {caseStudy && <div className="mt-4 flex justify-end">
+            <Button theme="primary" onClick={downloadCaseStudy}>下载 Word</Button>
+          </div>}
+        </Dialog>
 
         {/* 创建/编辑课堂对话框 - 只保留基本信息 */}
         {/* ⛔ DO NOT REVERT（2026-10-14 用户要求）：编辑/创建课堂弹窗禁止「点遮罩/按 ESC」关闭——
@@ -5356,6 +5510,17 @@ export default function TeacherTasksPage() {
                   </Button>
                 )}
               </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <Switch
+                  aria-label="班级数据进伴学"
+                  value={explorationEnableClassDataForCompanion}
+                  size="small"
+                  disabled={!explorationEnableAiCompanion}
+                  onChange={setExplorationEnableClassDataForCompanion}
+                />
+                <span className="text-sm font-medium text-[var(--muted)]">班级数据进伴学</span>
+                <span className="text-xs text-[var(--muted)]">只读取匿名聚合摘要，不含姓名和原始答卷。</span>
+              </div>
               {explorationEnableAiCompanion ? (
                 <>
                   <div className="text-xs text-[var(--accent)] bg-[var(--primary-lighter)] rounded p-2">
@@ -5619,7 +5784,10 @@ export default function TeacherTasksPage() {
               <div className="flex-1 overflow-y-auto p-6">
                 {(() => {
                   const q = quizPreviewData.questions[quizPreviewIndex];
-                  const options = typeof q.options === "string" ? JSON.parse(q.options || "{}") : (q.options || {});
+                  const type = normalizeQuestionType(q.type);
+                  const subjective = isSubjectiveQuizType(type);
+                  const short = type === "SHORT_ANSWER";
+                  const options = subjective ? {} : typeof q.options === "string" ? JSON.parse(q.options || "{}") : (q.options || {});
                   const userAns = quizPreviewAnswers[q.id];
                   return (
                     <div className="bg-[var(--card-bg)] rounded-xl shadow-sm p-6 border-2 border-[var(--primary)]">
@@ -5632,7 +5800,23 @@ export default function TeacherTasksPage() {
                         </div>
                       </div>
                       <div className="space-y-3 ml-11">
-                        {q.type === "TRUE_FALSE" ? (
+                        {/* ⛔ DO NOT REVERT: 旧预览在主观题无选项时会空白，历史上因学生无法作答才由出题协议暂禁；
+                            现已同步学生文字输入与出题协议，预览必须显示只读输入框和评分要点。
+                            🔗 RELATED: src/lib/prompts/quiz.ts、src/app/student/chat/QuizPanel.tsx、题目管理页 QuestionPreview。 */}
+                        {subjective ? (
+                          <>
+                            <textarea
+                              readOnly
+                              rows={short ? 4 : 1}
+                              aria-label={short ? "简答题作答预览" : "填空题作答预览"}
+                              placeholder={short ? "请写出你的理由" : "请输入答案"}
+                              className="w-full rounded-lg border border-[var(--card-border)] px-3 py-2 text-sm"
+                            />
+                            <div className="whitespace-pre-wrap text-sm text-[var(--muted)]">
+                              {short ? "评分要点" : "参考答案"}：{String(q.answer || "（无）")}
+                            </div>
+                          </>
+                        ) : type === "TRUE_FALSE" || type === "JUDGEMENT" ? (
                           <>
                             {["T", "F"].map((k) => {
                               const label = k === "T" ? "正确" : "错误";
@@ -5658,16 +5842,9 @@ export default function TeacherTasksPage() {
                               );
                             })}
                           </>
-                        ) : Object.keys(options).length === 0 ? (
-                          /* 兜底：主观题（填空/简答）无选项，预览若渲染空白教师会误以为题目缺失。
-                             出题协议已禁止主观题（⛔ DO NOT REVERT，见 src/lib/prompts/quiz.ts QUIZ_FORMAT_INSTRUCTIONS 注释），
-                             此分支仅防御历史/手动添加的主观题，只读展示参考答案。 */
-                          <div className="p-4 rounded-lg bg-[var(--warning-light)] border border-[var(--warning-light)] text-sm text-[var(--warning)]">
-                            本题为主观题（学生作答文字后由 AI 评分）。参考答案：{String(q.answer || "（无）")}
-                          </div>
                         ) : (
                           Object.entries(options).map(([k, v]) => {
-                            const isMulti = q.type === "MULTIPLE_CHOICE";
+                            const isMulti = type === "MULTIPLE_CHOICE";
                             const selectedList = userAns ? userAns.split(",") : [];
                             const correctList = (q.answer || "").split(",").map((s: string) => s.trim()).filter(Boolean);
                             const isSelected = isMulti ? selectedList.includes(k) : userAns === k;

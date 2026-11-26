@@ -138,7 +138,7 @@ export async function POST(
 
     // 修订基准：sanitize 一遍（同一白名单口径），sanitize 后还有卡片才值得修订
     const validFields = [...summaries.map((s) => s.name), SUBMITTED_AT_FIELD];
-    const baseConfig = rawBaseConfig ? sanitizeDashboardConfig(rawBaseConfig, validFields) : null;
+    const baseConfig = rawBaseConfig ? sanitizeDashboardConfig(rawBaseConfig, validFields, { ...Object.fromEntries(summaries.map((s) => [s.name, s.type])), [SUBMITTED_AT_FIELD]: "option" }) : null;
     const isRevise = Boolean(
       instruction &&
         baseConfig &&
@@ -147,7 +147,10 @@ export async function POST(
 
     let config: AiDashboardConfig | null = null;
     try {
-      const { chatModel } = await createDashScopeClient();
+      // ⛔ DO NOT REVERT: 非流式 generateText 的响应头要等模型整段配置 JSON 生成完才到达。
+      // 使用真实字段摘要实测首字节 60.28 秒，默认 10 秒连接超时会提前中止。
+      // 📐 CONTRACT: noFailover 仅用文本主模型，跳过平台连接/首字节超时；🔗 RELATED: src/lib/ai.ts。
+      const { chatModel } = await createDashScopeClient("text", undefined, { noFailover: true });
       const { text } = await generateText({
         model: chatModel,
         system: buildDashboardSystemPrompt(isRevise ? "revise" : "create"),
@@ -158,7 +161,7 @@ export async function POST(
       console.log("[dashboard-config] AI 原始输出:", text?.slice(0, 800));
       console.log("[dashboard-config] 解析结果:", parsed ? "JSON OK" : "解析失败(null)");
       if (parsed) {
-        config = sanitizeDashboardConfig(parsed, summaries.map((s) => s.name));
+        config = sanitizeDashboardConfig(parsed, summaries.map((s) => s.name), { ...Object.fromEntries(summaries.map((s) => [s.name, s.type])), [SUBMITTED_AT_FIELD]: "option" });
         console.log(
           "[dashboard-config] sanitize 后 -> charts:",
           config?.charts?.length ?? 0,
@@ -270,8 +273,9 @@ export async function PUT(
 
     // ⚠️ GOTCHA：「提交时间」是记录元数据（不在 data 里），buildFieldSummaries 不会列出它；
     // 不补进白名单的话，老师手动编辑时选「提交时间」做排行榜会被 sanitize 整条丢弃。
-    const validFields = [...buildFieldSummaries(items).map((s) => s.name), SUBMITTED_AT_FIELD];
-    const config = sanitizeDashboardConfig(rawConfig, validFields);
+    const putSummaries = buildFieldSummaries(items);
+    const validFields = [...putSummaries.map((s) => s.name), SUBMITTED_AT_FIELD];
+    const config = sanitizeDashboardConfig(rawConfig, validFields, { ...Object.fromEntries(putSummaries.map((s) => [s.name, s.type])), [SUBMITTED_AT_FIELD]: "option" });
 
     await prisma.explorationActivity.update({
       where: { id },

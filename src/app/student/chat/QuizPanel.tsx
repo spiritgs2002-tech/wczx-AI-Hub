@@ -138,8 +138,18 @@ export default function QuizPanel({ quizId, initialQuizData, initialQuestions = 
     return opts;
   };
 
+  // MUST COUNT ANSWERED QUESTIONS CONSISTENTLY: 空白文本不算已答，判空不能改变提交原文。
+  // 📐 CONTRACT: 提交仍使用 { questionId, selectedAnswer }。🔗 RELATED: attempts/route.ts、ai-grading.ts。
+  // ⛔ DO NOT REVERT: 仅统计 answers 的键会让空白主观题通过校验。
+  const answeredCount = questions.filter((q) => {
+    const type = normalizeQuestionType(q.type);
+    return type === "FILL_BLANK" || type === "SHORT_ANSWER"
+      ? Boolean(answers[q.id]?.trim())
+      : Object.prototype.hasOwnProperty.call(answers, q.id);
+  }).length;
+
   const handleSubmit = async () => {
-    if (Object.keys(answers).length < questions.length) {
+    if (answeredCount < questions.length) {
       MessagePlugin.warning("请完成所有题目后再提交");
       return;
     }
@@ -204,6 +214,7 @@ export default function QuizPanel({ quizId, initialQuizData, initialQuestions = 
 
   const getOptions = (q: any): Record<string, string> => {
     const t = normalizeQuestionType(q?.type);
+    if (t === "FILL_BLANK" || t === "SHORT_ANSWER") return {};
     if (t === "TRUE_FALSE" || t === "JUDGEMENT") {
       return { T: "正确", F: "错误" };
     }
@@ -213,6 +224,8 @@ export default function QuizPanel({ quizId, initialQuizData, initialQuestions = 
 
   const currentQ = questions[currentIndex];
   const opts = getOptions(currentQ);
+  const currentType = normalizeQuestionType(currentQ?.type);
+  const isSubjective = currentType === "FILL_BLANK" || currentType === "SHORT_ANSWER";
 
   // 回退判定：仅在后端未返回该题结果时使用，规则与后端 ai-grading 保持一致
   // （trim + 大写；多选题按集合比较，顺序无关），避免前后端口径不一
@@ -349,8 +362,22 @@ export default function QuizPanel({ quizId, initialQuizData, initialQuestions = 
             </div>
           </div>
 
-          {/* 选项列表 */}
-          <div className="space-y-3 ml-11">
+          {/* 主观题只收文字；选择题沿用选项列表。 */}
+          {isSubjective ? (
+            <div className="ml-11">
+              <textarea
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                rows={currentType === "SHORT_ANSWER" ? 4 : 1}
+                placeholder={currentType === "SHORT_ANSWER" ? "请写出你的理由" : "请输入答案"}
+                aria-label={currentType === "SHORT_ANSWER" ? "请写出你的理由" : "请输入答案"}
+                value={answers[currentQ.id] ?? ""}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setAnswers((prev) => ({ ...prev, [currentQ.id]: value }));
+                }}
+              />
+            </div>
+          ) : <div className="space-y-3 ml-11">
             {Object.entries(opts).map(([k, v]) => {
               const isMulti = currentQ.type === "MULTIPLE_CHOICE";
               const selectedList = answers[currentQ.id] ? answers[currentQ.id].split(",") : [];
@@ -382,7 +409,7 @@ export default function QuizPanel({ quizId, initialQuizData, initialQuestions = 
                 </div>
               );
             })}
-          </div>
+          </div>}
         </div>
       )}
     </div>
@@ -430,7 +457,7 @@ export default function QuizPanel({ quizId, initialQuizData, initialQuestions = 
       {!submitted ? (
         <div className="border-t border-gray-200 px-4 py-3 flex items-center justify-between">
           <div className="text-sm text-gray-400">
-            {Object.keys(answers).length} / {questions.length} 已答
+            {answeredCount} / {questions.length} 已答
           </div>
           <div className="flex gap-2">
             <Button
@@ -446,7 +473,7 @@ export default function QuizPanel({ quizId, initialQuizData, initialQuestions = 
               size="large"
               loading={submitting}
               onClick={handleSubmit}
-              disabled={Object.keys(answers).length < questions.length}
+              disabled={answeredCount < questions.length}
             >
               提交作业
             </Button>

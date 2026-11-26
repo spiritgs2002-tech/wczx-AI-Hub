@@ -20,18 +20,22 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  computeNumberStats,
   DEFAULT_THEME,
   SUBMITTED_AT_FIELD,
   type AiDashboardChart,
   type AiDashboardConfig,
 } from "@/lib/prompts/dashboard-config";
-import { ChartBar, ChartHBar, ChartLine, ChartPie, ChartScatter, PIE_PALETTE, type Entry } from "./DashboardCharts";
-import type { QfRecordItem } from "./QuickFormDashboard";
+import { ChartBar, ChartBoxPlot, MultiBoxPlot, ChartHBar, ChartLine, ChartPie, ChartScatter, PIE_PALETTE, type Entry } from "./DashboardCharts";
+import { IDENTIFIER_KEY_HINTS, type QfRecordItem } from "./QuickFormDashboard";
+import { maskDisplayName, useProjectionSafe } from "@/lib/projection-safe";
 
 interface Props {
   records: QfRecordItem[];
   total: number;
   config: AiDashboardConfig;
+  /** 全屏投屏模式：铺满视口、放大留白、只保留统计图卡（名单/词云/排行榜不占屏） */
+  fullscreen?: boolean;
 }
 
 /* ------------------------------ 强调色白名单 ------------------------------ */
@@ -90,6 +94,27 @@ function fmtNum(n: number): string {
 function fieldValueOf(r: QfRecordItem, field: string): unknown {
   if (field === SUBMITTED_AT_FIELD) return r.submittedAt;
   return r.data?.[field];
+}
+
+// MUST PRESERVE MULTI MEMBERSHIP: 多选值分别计入各组；未填单独计数。
+// 📐 CONTRACT: 最多八个主要组，剩余合并；🔗 RELATED: 分组 KPI 与图表。
+// ⛔ DO NOT REVERT: 合并其他时同一记录去重，避免多选导致重复统计。
+export function groupRecords(records: QfRecordItem[], groupBy: string): Map<string, QfRecordItem[]> {
+  const groups = new Map<string, QfRecordItem[]>();
+  for (const record of records) {
+    const raw = fieldValueOf(record, groupBy);
+    const values = Array.isArray(raw) ? raw : [raw];
+    const keys = [...new Set(values.map((v) => v == null ? "" : String(v).trim()).filter(Boolean))];
+    for (const key of keys.length ? keys : ["（未填）"]) groups.set(key, [...(groups.get(key) || []), record]);
+  }
+  const sorted = [...groups].sort((a, b) => b[1].length - a[1].length);
+  if (sorted.length <= 8) return new Map(sorted);
+  const top = sorted.slice(0, 8);
+  const rest = [...new Set(sorted.slice(8).flatMap(([, rows]) => rows))];
+  const existing = top.find(([key]) => key === "其他");
+  if (existing) existing[1] = [...new Set([...existing[1], ...rest])];
+  else top.push(["其他", rest]);
+  return new Map(top);
 }
 
 /** 收集每个字段的非空取值（多选字段会被摊平用于计数） */
@@ -203,14 +228,31 @@ function kpiValue(agg: string, values: unknown[]): string {
   switch (agg) {
     case "unique":
       return String(new Set(values.map((v) => String(v))).size);
-    case "avg":
-      return nums.length ? fmtNum(nums.reduce((a, b) => a + b, 0) / nums.length) : "—";
+    // MUST KEEP TWO DECIMALS FOR THE MEAN: 对比 4.95 / 3.25 / 3 时不能把平均值显示成 5。
+    // 📐 CONTRACT: 保留旧聚合的数值过滤；🔗 RELATED: dashboard-config.ts 的摘要 avg。
+    // ⛔ DO NOT REVERT: 不沿用其他旧指标的一位小数格式。
+    case "avg": {
+      if (!nums.length) return "—";
+      const avg = computeNumberStats(nums)?.avg;
+      return avg != null && Number.isFinite(avg) ? String(avg) : "—";
+    }
     case "sum":
       return nums.length ? fmtNum(nums.reduce((a, b) => a + b, 0)) : "—";
     case "max":
       return nums.length ? fmtNum(Math.max(...nums)) : "—";
     case "min":
       return nums.length ? fmtNum(Math.min(...nums)) : "—";
+    // MUST KEEP MISSING VALUES DISTINCT: 新统计量只适用于数值字段，零是有效结果。
+    // 📐 CONTRACT: 无统计量或无众数显示 "—"；🔗 RELATED: dashboard-config.ts 的 computeNumberStats。
+    // ⛔ DO NOT REVERT: 不把 null 转成 0，也不把混合字段静默判为数值字段。
+    case "median":
+    case "mode":
+    case "range":
+    case "variance":
+    case "stddev": {
+      const value = nums.length === values.length ? computeNumberStats(nums)?.[agg] : undefined;
+      return value != null && Number.isFinite(value) ? String(Number(value.toPrecision(14))) : "—";
+    }
     default:
       return String(values.length);
   }
@@ -225,6 +267,7 @@ function Card({
   meta,
   note,
   children,
+  fill = false,
 }: {
   color: string;
   hero: boolean;
@@ -232,13 +275,14 @@ function Card({
   meta?: string;
   note?: string;
   children: React.ReactNode;
+  fill?: boolean;
 }) {
   return (
     <div
-      className="rounded-2xl border bg-white shadow-sm hover:shadow-md transition-shadow p-5 h-full"
+      className={`rounded-2xl border bg-white shadow-sm hover:shadow-md transition-shadow p-5 h-full ${fill ? "flex flex-col min-h-0 overflow-hidden" : ""}`}
       style={{ borderColor: hero ? `${color}55` : "#f0f2f6" }}
     >
-      <div className="flex items-center justify-between gap-2 mb-4">
+      <div className={`flex items-center justify-between gap-2 ${fill ? "shrink-0 mb-2" : "mb-4"}`}>
         <span className="flex items-center gap-2 min-w-0">
           <span className="w-2 h-2 rounded-full shrink-0" style={{ background: color }} />
           <span className="text-sm font-semibold text-gray-800 truncate" title={title}>
@@ -247,7 +291,7 @@ function Card({
         </span>
         {meta && <span className="text-[11px] text-gray-400 shrink-0">{meta}</span>}
       </div>
-      {children}
+      <div className={fill ? "flex-1 min-h-0" : undefined}>{children}</div>
       {note && <div className="text-[11px] text-gray-400 mt-3 leading-relaxed">{note}</div>}
     </div>
   );
@@ -255,25 +299,36 @@ function Card({
 
 /* ------------------------------ 图形 ------------------------------ */
 
-function ColumnChart({ entries, color }: { entries: Entry[]; color: string }) {
-  return <ChartBar entries={entries} color={color} />;
+function ColumnChart({ entries, color, fill, showValue = false }: { entries: Entry[]; color: string; fill?: boolean; showValue?: boolean }) {
+  return <ChartBar entries={entries} color={color} fill={fill} showValue={showValue} />;
 }
 
-function BarList({ entries, color }: { entries: Entry[]; color: string }) {
-  return <ChartHBar entries={entries} color={color} />;
+function BarList({ entries, color, showValue = false, fill }: { entries: Entry[]; color: string; showValue?: boolean; fill?: boolean }) {
+  return <ChartHBar entries={entries} color={color} showValue={showValue} fill={fill} />;
 }
 
 function PieChartView({ entries }: { entries: Entry[] }) {
   return <ChartPie entries={entries} />;
 }
 
-function LineView({ entries, color }: { entries: Entry[]; color: string }) {
-  return <ChartLine entries={entries} color={color} />;
+function LineView({ entries, color, fill }: { entries: Entry[]; color: string; fill?: boolean }) {
+  return <ChartLine entries={entries} color={color} fill={fill} />;
+}
+
+// MUST MASK ONLY IDENTIFIER GROUP LABELS: 树种等类别仍显示原名，分组与统计使用原始值。
+// 📐 CONTRACT: 复用默认大屏字段名口径；🔗 RELATED: QuickFormDashboard.isIdentifier。
+// ⛔ DO NOT REVERT: 在聚合后替换标签，不重新分组或排序。
+function isIdentifierLabel(field: string): boolean {
+  return IDENTIFIER_KEY_HINTS.some((hint) => field.toLowerCase().includes(hint));
 }
 
 function NameRoster({ names }: { names: string[] }) {
+  const safe = useProjectionSafe();
   const LIMIT = 60;
-  const shown = names.slice(0, LIMIT);
+  // MUST MASK THE TITLE TOO: 浏览器悬浮提示与显示文本共用投屏别名。
+  // 📐 CONTRACT: 仅替换展示；🔗 RELATED: projection-safe.ts。
+  // ⛔ DO NOT REVERT: 保持原名单计数和顺序。
+  const shown = names.slice(0, LIMIT).map((name, i) => safe ? maskDisplayName(name, i) : name);
   return (
     <div>
       <div className="grid grid-cols-2 gap-x-6 gap-y-2.5">
@@ -333,6 +388,7 @@ function RankingList({
   labelField?: string;
   order?: "desc" | "asc";
 }) {
+  const safe = useProjectionSafe();
   const lf = labelField || sortField;
   const isNum = records.some((r) => isNumericValue(fieldValueOf(r, sortField)));
 
@@ -361,7 +417,9 @@ function RankingList({
         : String(sorted[i - 1].raw) === String(r.raw);
       if (!same) rank = i + 1;
     }
-    return { ...r, rank, value: isNum ? fmtNum(Number(r.raw)) : String(r.raw) };
+    const label = safe ? maskDisplayName(r.label, i) : r.label;
+    const value = isNum ? fmtNum(Number(r.raw)) : String(r.raw);
+    return { ...r, rank, label, value: safe && !isNum && isIdentifierLabel(sortField) ? label : value };
   });
 
   return (
@@ -522,35 +580,75 @@ function WordCloud({ entries, color }: { entries: Entry[]; color: string }) {
   );
 }
 
-/** 散点图：两条数值字段的相关性 */
+/** 散点图未显式配置 groupBy 时，自动识别常见类别字段（如「组别」），让不同树种自动分色 */
+function detectScatterGroupField(records: QfRecordItem[]): string | undefined {
+  if (records.length < 2) return undefined;
+  const candidates = new Set<string>();
+  for (const r of records) for (const key of Object.keys(r.data || {})) candidates.add(key);
+  for (const key of candidates) {
+    if (key.startsWith("_")) continue;
+    if (!/组别|树种|类别|分组|group|category|type/i.test(key)) continue;
+    const values = new Set(
+      records.map((r) => String(r.data?.[key] ?? "").trim()).filter(Boolean)
+    );
+    if (values.size >= 2 && values.size <= 12) return key;
+  }
+  return undefined;
+}
+
+/** 散点图：两条数值字段的相关性；有分组字段时按组着色并出图例 */
 function ScatterView({
   records,
   xField,
   yField,
   labelField,
+  groupBy,
   color,
+  fill,
 }: {
   records: QfRecordItem[];
   xField: string;
   yField: string;
   labelField?: string;
+  groupBy?: string;
   color: string;
+  fill?: boolean;
 }) {
-  const points: { x: number; y: number; label?: string }[] = [];
+  const safe = useProjectionSafe();
+  const points: { x: number; y: number; label?: string; group?: string }[] = [];
+  const groupIndex = new Map<string, number>();
   for (const r of records) {
     const data = r.data || {};
     const x = data[xField];
     const y = data[yField];
     if (!isNumericValue(x) || !isNumericValue(y)) continue;
+    const rawGroup = groupBy ? String(data[groupBy] ?? "").trim() : "";
+    let group: string | undefined;
+    if (rawGroup) {
+      if (!groupIndex.has(rawGroup)) groupIndex.set(rawGroup, groupIndex.size);
+      group = safe && isIdentifierLabel(groupBy!)
+        ? maskDisplayName(rawGroup, groupIndex.get(rawGroup)!)
+        : rawGroup;
+    }
     points.push({
       x: Number(x),
       y: Number(y),
-      label: labelField ? String(data[labelField] ?? "") : undefined,
+      label: labelField ? (safe && isIdentifierLabel(labelField) ? maskDisplayName("", points.length) : String(data[labelField] ?? "")) : undefined,
+      group,
     });
   }
 
   if (points.length < 2) return null;
-  return <ChartScatter points={points} color={color} xLabel={xField} yLabel={yField} />;
+  return (
+    <ChartScatter
+      points={points}
+      color={color}
+      xLabel={xField}
+      yLabel={yField}
+      groupLabel={groupBy}
+      fill={fill}
+    />
+  );
 }
 
 /* ------------------------------ 图表分发 ------------------------------ */
@@ -560,12 +658,15 @@ function ChartBody({
   records,
   fieldValues,
   color,
+  fill,
 }: {
   chart: AiDashboardChart;
   records: QfRecordItem[];
   fieldValues: Map<string, unknown[]>;
   color: string;
+  fill?: boolean;
 }) {
+  const safe = useProjectionSafe();
   const limit = chart.limit ?? 8;
 
   if (chart.type === "roster") {
@@ -595,39 +696,79 @@ function ChartBody({
         xField={chart.xField}
         yField={chart.yField}
         labelField={chart.labelField}
+        groupBy={chart.groupBy || detectScatterGroupField(records)}
         color={color}
+        fill={fill}
       />
     );
   }
 
   const values = fieldValues.get(chart.field) || [];
 
+  // MUST SHARE THE GROUP SAMPLE: 分组箱线与指标均从同一组记录计算，单组图保持原口径。
+  // 🔗 RELATED: groupRecords、MultiBoxPlot、computeNumberStats；⛔ DO NOT REVERT: 不用全班数值替代组内值。
+  if (chart.groupBy && ["boxplot", "bar", "hbar", "line"].includes(chart.type)) {
+    const groups = [...groupRecords(records, chart.groupBy)];
+    const grouped = groups.map(([name, rows], i) => {
+      const nums = rows.map((r) => fieldValueOf(r, chart.field)).filter(isNumericValue).map(Number);
+      return { name: safe && isIdentifierLabel(chart.groupBy!) ? maskDisplayName(name, i) : name, stats: nums.length >= 2 ? computeNumberStats(nums) : null, nums };
+    });
+    if (chart.type === "boxplot") return <MultiBoxPlot series={grouped} color={color} fill={fill} />;
+    // 分组条形图按「中位数」比较（课堂讨论的是典型叶片，不被极端值拉偏），并在条形末端显示数值。
+    const entries: Entry[] = grouped.flatMap(({ name, nums }) => {
+      const stats = nums.length ? computeNumberStats(nums) : null;
+      // 分组对比一律用中位数（典型叶片，不被极端值拉偏），bar / hbar 口径一致。
+      return stats ? [[name, stats.median] as Entry] : [];
+    });
+    if (chart.type === "line") return <LineView entries={entries} color={color} fill={fill} />;
+    if (chart.type === "hbar") return <BarList entries={entries} color={color} showValue fill={fill} />;
+    return <ColumnChart entries={entries} color={color} showValue fill={fill} />;
+  }
+
+  // MUST SHARE THE SUMMARY ALGORITHM: 同一字段的箱体、中位线与 KPI 必须一致。
+  // 📐 CONTRACT: 只取有效数值，至少 4 个才画；🔗 RELATED: chartHasData / ChartBoxPlot。
+  // ⛔ DO NOT REVERT: 用须端点画须，不能把样本最小值和最大值直接当成须。
+  if (chart.type === "boxplot") {
+    const nums = values.filter(isNumericValue).map(Number);
+    const stats = nums.length >= BOX_PLOT_MIN_COUNT ? computeNumberStats(nums) : null;
+    return <ChartBoxPlot stats={stats ? {
+      min: stats.whiskerMin, q1: stats.q1, median: stats.median, q3: stats.q3,
+      max: stats.whiskerMax, outliers: stats.outliers,
+    } : null} color={color} label={chart.field} />;
+  }
+
   if (chart.type === "wordcloud") {
     // ⛔ DO NOT REVERT：词数上限曾写死 30，导致编辑器「显示条数」输入框形同虚设（2026-10-13 修复）。
     // 现按 chart.limit 生效（默认 8，编辑器/后端 sanitize 限 3~20），下限 6 与 bar/hbar/pie/line 口径一致；
     // 取值必须先经 collectWords 按标点/空格分词，否则「勤劳，无私、清凉」会被整串计为一个词。
-    const wcEntries = counter(collectWords(values), Math.max(limit, 6));
+    const maskLabels = safe && isIdentifierLabel(chart.field);
+    const wcEntries = counter(collectWords(values), Math.max(limit, 6))
+      .map(([name, count], i): Entry => [maskLabels ? maskDisplayName(name, i) : name, count]);
     if (wcEntries.length === 0) return null;
     return <WordCloud entries={wcEntries} color={color} />;
   }
 
-  const entries = entriesForField(values, chart.type === "list" ? limit : Math.max(limit, 6));
+  const maskLabels = safe && isIdentifierLabel(chart.field) && !values.every(isNumericValue);
+  const entries = entriesForField(values, chart.type === "list" ? limit : Math.max(limit, 6))
+    .map(([name, value], i): Entry => [maskLabels ? maskDisplayName(name, i) : name, value]);
   if (entries.length === 0) return null;
 
   switch (chart.type) {
     case "line":
-      return <LineView entries={entries} color={color} />;
+      return <LineView entries={entries} color={color} fill={fill} />;
     case "hbar":
-      return <BarList entries={entries} color={color} />;
+      return <BarList entries={entries} color={color} fill={fill} />;
     case "pie":
       return <PieChartView entries={entries} />;
     case "list":
       return <TagList entries={entries} color={color} />;
     case "bar":
     default:
-      return <ColumnChart entries={entries} color={color} />;
+      return <ColumnChart entries={entries} color={color} fill={fill} />;
   }
 }
+
+const BOX_PLOT_MIN_COUNT = 4;
 
 /** 判断一张图在当前数据下是否有可渲染内容（ranking/scatter 走记录维度，其余走字段聚合） */
 function chartHasData(
@@ -651,12 +792,15 @@ function chartHasData(
     }
     return n >= 2;
   }
-  return (fieldValues.get(chart.field) || []).length > 0;
+  const values = fieldValues.get(chart.field) || [];
+  if (chart.type === "boxplot") return values.filter(isNumericValue).length >= BOX_PLOT_MIN_COUNT;
+  return values.length > 0;
 }
 
 /* ------------------------------ 主组件 ------------------------------ */
 
-export default function QuickFormAiDashboard({ records, total, config }: Props) {
+export default function QuickFormAiDashboard({ records, total, config, fullscreen = false }: Props) {
+  const safe = useProjectionSafe();
   const accent = accentColor(config.theme);
   const gridCols = config.gridCols ?? 2;
   const fieldValues = useMemo(() => collectValues(records), [records]);
@@ -664,12 +808,21 @@ export default function QuickFormAiDashboard({ records, total, config }: Props) 
   const kpis = (config.kpis || []).map((k) => {
     const values = k.field ? fieldValues.get(k.field) || [] : [];
     const shown = k.agg === "count" && !k.field ? String(total) : kpiValue(k.agg, values);
-    return { label: k.label, value: shown };
+    const grouped = k.groupBy ? [...groupRecords(records, k.groupBy)].map(([name, rows], i) => ({
+      name: safe && isIdentifierLabel(k.groupBy!) ? maskDisplayName(name, i) : name,
+      value: k.field ? kpiValue(k.agg, rows.map((r) => fieldValueOf(r, k.field!)).filter((v) => v != null && v !== "")) : String(rows.length),
+    })) : null;
+    return { label: k.label, value: shown, grouped };
   });
 
   const charts = (config.charts || [])
     .map((c) => ({ chart: c, hasData: chartHasData(c, records, fieldValues) }))
-    .filter((x) => x.hasData);
+    // MUST KEEP THE BOX PLOT CARD: 数据不足也保留卡片，由 ChartBoxPlot 提示，其他图仍按原规则过滤。
+    // 📐 CONTRACT: chartHasData 仍如实返回 false；🔗 RELATED: ChartBody。
+    // ⛔ DO NOT REVERT: 把所有无数据图统一过滤会吞掉箱线图的不足提示。
+    .filter(({ chart, hasData }) => hasData || chart.type === "boxplot")
+    // 全屏投屏只保留统计图；名单/词云/排行榜等文本卡不占屏。
+    .filter(({ chart }) => !fullscreen || !["roster", "wordcloud", "list", "ranking"].includes(chart.type));
 
   const rosterCount = (() => {
     const roster = (config.charts || []).find((c) => c.type === "roster");
@@ -678,12 +831,15 @@ export default function QuickFormAiDashboard({ records, total, config }: Props) 
   })();
 
   return (
-    <div className="rounded-2xl bg-[#f7f9fc] border border-gray-100 p-4 md:p-5 space-y-4">
+    <div className={fullscreen
+      ? "h-full w-full bg-white px-6 py-4 md:px-10 md:py-5 flex flex-col min-h-0 overflow-hidden"
+      : "rounded-2xl bg-[#f7f9fc] border border-gray-100 p-4 md:p-5 space-y-4"}>
       {/* ⛔ DO NOT REVERT：按需求（2026-10-05）默认隐藏标题栏（含「AI 设计」标签），
           大屏顶部直接进图表；KPI 统计卡行已移到图表下方（见本组件底部），此处不再渲染头部两行。 */}
-      {/* 图表栅格（白卡片 + 可配置列数，span 占列） */}
+      {/* 图表栅格（白卡片 + 可配置列数，span 占列）。
+          全屏时 flex-1 min-h-0 吃掉除 KPI 外的全部高度，内部各 Card 再按自身分配高度，整屏不滚动。 */}
       {charts.length > 0 ? (
-        <div className={`grid ${GRID_COLS_CLASS[gridCols] ?? GRID_COLS_CLASS[2]} gap-4`}>
+        <div className={`grid ${GRID_COLS_CLASS[gridCols] ?? GRID_COLS_CLASS[2]} ${fullscreen ? "flex-1 min-h-0 auto-rows-fr gap-4" : "gap-4"}`}>
           {charts.map(({ chart }, i) => {
             const span = effectiveSpan(chart, gridCols);
             const hero = span === gridCols;
@@ -691,7 +847,7 @@ export default function QuickFormAiDashboard({ records, total, config }: Props) 
             return (
               <div
                 key={`${chart.field}-${chart.type}-${i}`}
-                className={SPAN_CLASS[span] ?? ""}
+                className={`${SPAN_CLASS[span] ?? ""} ${fullscreen ? "h-full min-h-0" : ""}`}
               >
                 <Card
                   color={chart.type === "pie" ? PIE_PALETTE[i % PIE_PALETTE.length] : color}
@@ -699,12 +855,14 @@ export default function QuickFormAiDashboard({ records, total, config }: Props) 
                   title={chart.title || chart.field}
                   meta={chart.type === "roster" ? `名单 · 共 ${rosterCount ?? 0} 人` : undefined}
                   note={chart.note}
+                  fill={fullscreen}
                 >
                   <ChartBody
                     chart={chart}
                     records={records}
                     fieldValues={fieldValues}
                     color={color}
+                    fill={fullscreen}
                   />
                 </Card>
               </div>
@@ -714,18 +872,19 @@ export default function QuickFormAiDashboard({ records, total, config }: Props) 
       ) : kpis.length > 0 ? (
         // ⚠️ GOTCHA：charts 被 chartHasData 全部过滤、但 KPI 卡仍有值时，不要弹「没有可渲染的图表」
         // 这类误导性空态（否则老师以为配置坏了），而是提示「只有指标卡、可点编辑补图表」。
-        <div className="rounded-2xl border border-dashed border-gray-200 bg-white/60 p-6 text-center text-sm text-gray-400">
+        <div className={`rounded-2xl border border-dashed border-gray-200 bg-white/60 p-6 text-center text-sm text-gray-400 ${fullscreen ? "flex-1 min-h-0 flex items-center justify-center" : ""}`}>
           大屏当前只有指标卡，没有可渲染的图表，可点上方「编辑」添加图表。
         </div>
       ) : (
-        <div className="rounded-2xl border border-dashed border-gray-200 bg-white/60 p-6 text-center text-sm text-gray-400">
+        <div className={`rounded-2xl border border-dashed border-gray-200 bg-white/60 p-6 text-center text-sm text-gray-400 ${fullscreen ? "flex-1 min-h-0 flex items-center justify-center" : ""}`}>
           AI 配置里没有可渲染的图表，可点「恢复默认大屏」。
         </div>
       )}
 
-      {/* KPI 统计卡行：按需求（2026-10-05）从大屏顶部移到图表下方（底部），顶部不再显示头部两行 */}
+      {/* KPI 统计卡行：按需求（2026-10-05）从大屏顶部移到图表下方（底部），顶部不再显示头部两行。
+          全屏时 shrink-0 固定底部高度，不参与剩余空间分配。 */}
       {kpis.length > 0 && (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className={`grid grid-cols-2 lg:grid-cols-4 ${fullscreen ? "gap-4 shrink-0 mt-4" : "gap-4"}`}>
           {kpis.map((k, i) => (
             <div
               key={`${k.label}-${i}`}
@@ -734,9 +893,7 @@ export default function QuickFormAiDashboard({ records, total, config }: Props) 
               <div className="text-xs text-gray-400 truncate" title={k.label}>
                 {k.label}
               </div>
-              <div className="text-3xl font-bold text-gray-900 mt-1.5 truncate" title={k.value}>
-                {k.value}
-              </div>
+              {k.grouped ? <div className="mt-2 space-y-1 text-sm">{k.grouped.slice(0, 8).map((row) => <div key={row.name} className="flex justify-between gap-2"><span>{row.name}</span><strong>{row.value}</strong></div>)}{k.grouped.length > 8 && <span>…</span>}</div> : <div className="text-3xl font-bold text-gray-900 mt-1.5 truncate" title={k.value}>{k.value}</div>}
             </div>
           ))}
         </div>

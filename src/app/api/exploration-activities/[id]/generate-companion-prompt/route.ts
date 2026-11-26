@@ -41,7 +41,10 @@ export async function POST(
       );
     }
 
-    const { chatModel } = await createDashScopeClient();
+    // ⛔ DO NOT REVERT: 非流式 generateText 的响应头要等模型整段生成后才到达；
+    //   当前模型实测 81.5s（关推理 14.6s），默认 10s 连接超时会误杀。
+    //   noFailover = 仅主模型 + 无连接/首字节超时（本平台未配文本备用模型，无降级损失）。
+    const { chatModel } = await createDashScopeClient("text", undefined, { noFailover: true });
     const analysisPrompt = buildHtmlAnalysisPrompt(exploration.htmlContent);
 
     // 使用 generateText（非流式），因为需要完整结果后保存

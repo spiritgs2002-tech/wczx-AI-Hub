@@ -89,7 +89,10 @@ ${currentObjective.trim()}
 3. 体现${subject}学科特点，避免空泛套话
 4. 语言简洁，1-3 条即可；每条一句话，直接输出目标内容，不要输出任何额外解释`;
 
-    const { chatModel } = await createDashScopeClient();
+    // ⛔ DO NOT REVERT: 非流式 generateText 的响应头要等模型整段生成后才到达。
+    // 短目标实测 9.9 秒，默认 10 秒连接超时可能提前中止；noFailover 只用文本主模型，取消该超时。
+    // 📐 CONTRACT: 仅目标生成走此通道；🔗 RELATED: src/lib/ai.ts 的 noFailover 分支。
+    const { chatModel } = await createDashScopeClient("text", undefined, { noFailover: true });
 
     const result = await aiQueue.enqueue(async () =>
       generateText({

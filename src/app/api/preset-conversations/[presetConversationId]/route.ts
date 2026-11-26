@@ -1,3 +1,4 @@
+import { PROMPT_FIELDS, recordPromptVersion, snapshotOf } from "@/lib/prompt-version";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireTeacher, ownsPresetConversation } from "@/lib/api-auth";
@@ -90,11 +91,25 @@ export async function PUT(
     if (classInsightTemplateId !== undefined) data.classInsightTemplateId = classInsightTemplateId || null;
     if (enabled !== undefined) data.enabled = enabled === true;
 
+    // 只为提示词编辑补读旧值，保留现有更新与返回口径。
+    const original = PROMPT_FIELDS.PresetConversation.some((field) => Object.hasOwn(data, field))
+      ? await prisma.presetConversation.findUnique({ where: { id: presetConversationId },
+        select: { systemPrompt: true, analysisPrompt: true, classAnalysisPrompt: true } })
+      : null;
     const updated = await prisma.presetConversation.update({
       where: { id: presetConversationId },
       data,
     });
 
+    // MUST RECORD AFTER SAVE: 仅在原有更新成功后记录实际提示词变更。
+    // 📐 CONTRACT: 快照走共享白名单；🔗 RELATED: src/lib/prompt-version.ts。
+    // ⛔ DO NOT REVERT: 不将 HTML、业务字段或整行写入版本表。
+    if (original) {
+      await recordPromptVersion({
+        teacherId: auth.userId, targetModel: "PresetConversation", targetId: presetConversationId, label: updated.title,
+        before: snapshotOf("PresetConversation", original), after: snapshotOf("PresetConversation", updated),
+      });
+    }
     return NextResponse.json({ success: true, presetConversation: updated });
   } catch (e) {
     console.error(e);

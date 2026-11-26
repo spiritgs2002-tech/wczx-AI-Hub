@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { verifyToken } from "@/lib/auth";
-import { writeCollectedAnswers } from "@/lib/exploration/qf-binding";
+import { writeCollectedAnswerBatch, writeCollectedAnswers } from "@/lib/exploration/qf-binding";
 
 // POST: 学生提交探究成绩
 export async function POST(
@@ -33,7 +33,7 @@ export async function POST(
       actionLog,
       taskTitle, studentName, className,
       // QuickForm 采集块带上来的学生答案（没有采集块时为空）
-      answers,
+      answers, answersBatch,
       // 双轨采集新增：契约轨明细 + 兜底采集
       gameState, scoreInferred,
       canvasSnapshots, storageSnapshot, textSnapshot,
@@ -44,6 +44,16 @@ export async function POST(
     // ⛔ DO NOT REVERT：不要退回 `: 0`，否则无评分探究会被记为 0 分并进入平均分统计。
     const finalScore = typeof score === "number" ? score : null;
     const finalMaxScore = typeof maxScore === "number" ? maxScore : 100;
+
+    const batchRows = Array.isArray(answersBatch) && answersBatch.length ? answersBatch : null;
+    let archivedGameState = gameState && typeof gameState === "object" && !Array.isArray(gameState) ? gameState : null;
+    if (batchRows && archivedGameState) {
+      // MUST KEEP BATCH ANSWERS SEPARATE: 明细只走受限的 QF 路径，不在行为快照中重复存原始数组或单条答案。
+      // 📐 CONTRACT: 保留其余状态；🔗 RELATED: exploration-submit.ts 的双通道上报。
+      // ⛔ DO NOT REVERT: 防止嵌套字段绕过明细条数和隐私过滤。
+      const { answersBatch: _batch, answers: _single, ...otherState } = archivedGameState;
+      archivedGameState = otherState;
+    }
 
     // 行为数据汇总（存 JSON，不含 actionLog）
     const extraData = {
@@ -56,8 +66,8 @@ export async function POST(
       taskTitle: taskTitle ?? "",
       studentName: studentName ?? "",
       className: className ?? "",
-      // 契约轨明细（AI 挂载的 __gameState__ 原样存档，教师端展示用）
-      gameState: gameState && typeof gameState === "object" && !Array.isArray(gameState) ? gameState : null,
+      // 契约轨明细（AI 挂载的 __gameState__，旧链路原样存档）
+      gameState: archivedGameState,
       // 分数是否为正则推测值（非契约/函数上报）
       scoreInferred: scoreInferred === true,
       // 兜底采集：canvas 快照（每张限 500KB、最多 3 张）
@@ -88,7 +98,7 @@ export async function POST(
       : [];
 
     // 事务：创建/更新提交记录 + 写入操作日志
-    const { submission, previousQfRecordId } = await prisma.$transaction(async (tx) => {
+    const { submission, previousQfRecordId, previousBatchRecordIds } = await prisma.$transaction(async (tx) => {
       // 查找已有提交
       const existing = await tx.explorationSubmission.findUnique({
         where: { explorationId_studentId: { explorationId: id, studentId } },
@@ -141,46 +151,69 @@ export async function POST(
         });
       }
 
-      return { submission: sub, previousQfRecordId: existing?.qfRecordId ?? null };
+      let previousBatchRecordIds: string[] = [];
+      try {
+        const ids: unknown = JSON.parse(existing?.qfRecordIdsJson ?? "null");
+        if (Array.isArray(ids)) {
+          previousBatchRecordIds = ids.filter((value): value is string => typeof value === "string" && !!value);
+        }
+      } catch { /* 兼容旧值，回退到单条记录 ID。 */ }
+      return { submission: sub, previousQfRecordId: existing?.qfRecordId ?? null, previousBatchRecordIds };
     });
 
     // ===== QuickForm 答案落库（行为数据已落库，这一步失败不回滚、不影响学生提交）=====
     let answersStored = false;
+    let answersMode: "batch" | "single" | "none" = "none";
+    let answersCount = 0;
     let qfError: string | undefined;
-    if (
-      exploration.qfTaskId &&
-      answers &&
-      typeof answers === "object" &&
-      !Array.isArray(answers) &&
-      Object.keys(answers).length > 0
-    ) {
+    const singleAnswers = answers && typeof answers === "object" && !Array.isArray(answers) && Object.keys(answers).length > 0
+      ? answers as Record<string, unknown>
+      : null;
+
+    // MUST PREFER THE BATCH: 有批量明细时只写批量路径；即使清洗失败也不回退到单条。
+    // 📐 CONTRACT: 成功才更新关联 ID；🔗 RELATED: qf-binding.ts 与 quickform/index.ts。
+    // ⛔ DO NOT REVERT: 保留旧单条 core 路径，只有批量或从批量切回时替换多个旧 ID。
+    if (exploration.qfTaskId && (batchRows || singleAnswers)) {
       const student = await prisma.user.findUnique({
         where: { id: studentId },
         select: { name: true, studentNo: true },
       });
-      const result = await writeCollectedAnswers(
-        exploration.qfTaskId,
-        answers as Record<string, unknown>,
-        {
-          // 学生重新提交：先删旧记录再写新的，保持一人一条
-          replaceRecordId: previousQfRecordId,
-          identity: {
-            studentName: student?.name ?? undefined,
-            studentNo: student?.studentNo ?? undefined,
-            studentId,
-          },
-        }
-      );
-      if ("recordId" in result) {
-        answersStored = true;
-        await prisma.explorationSubmission.update({
-          where: { id: submission.id },
-          data: { qfRecordId: result.recordId },
+      const identity = { studentName: student?.name ?? undefined, studentNo: student?.studentNo ?? undefined, studentId };
+      if (batchRows) {
+        const result = await writeCollectedAnswerBatch(exploration.qfTaskId, batchRows, {
+          replaceRecordIds: previousBatchRecordIds.length ? previousBatchRecordIds : previousQfRecordId ? [previousQfRecordId] : [],
+          identity,
         });
-      } else {
-        qfError = result.error;
-        console.error("[QF] 答案写入失败（行为数据已正常落库）:", result.error);
+        if ("recordIds" in result && result.recordIds.length) {
+          await prisma.explorationSubmission.update({
+            where: { id: submission.id },
+            data: { qfRecordId: result.recordIds[0], qfRecordIdsJson: JSON.stringify(result.recordIds) },
+          });
+          answersStored = true;
+          answersMode = "batch";
+          answersCount = result.written;
+        } else {
+          qfError = "error" in result ? result.error : "批量明细写入失败";
+        }
+      } else if (singleAnswers) {
+        const result = await writeCollectedAnswers(exploration.qfTaskId, singleAnswers, {
+          replaceRecordId: previousQfRecordId,
+          replaceRecordIds: previousBatchRecordIds,
+          identity,
+        });
+        if ("recordId" in result) {
+          await prisma.explorationSubmission.update({
+            where: { id: submission.id },
+            data: { qfRecordId: result.recordId, qfRecordIdsJson: null },
+          });
+          answersStored = true;
+          answersMode = "single";
+          answersCount = 1;
+        } else {
+          qfError = result.error;
+        }
       }
+      if (qfError) console.error("[QF] 答案写入失败（行为数据已正常落库）:", qfError);
     }
 
     return NextResponse.json({
@@ -190,6 +223,8 @@ export async function POST(
       status: "graded",
       submittedAt: submission.submittedAt,
       answersStored,
+      answersMode,
+      answersCount,
       ...(qfError ? { answersError: qfError } : {}),
     });
   } catch (error: any) {

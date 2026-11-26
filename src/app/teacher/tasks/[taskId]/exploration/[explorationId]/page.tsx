@@ -13,6 +13,7 @@ import QuickFormAiDashboard from "@/components/exploration/QuickFormAiDashboard"
 import DashboardEditor from "@/components/exploration/DashboardEditor";
 import { SUBMITTED_AT_FIELD, applyQuickEdits, type AiDashboardConfig, type AiDashboardChart, type AiDashboardKpi } from "@/lib/prompts/dashboard-config";
 import TemplatePreviewButton from "@/components/template/TemplatePreviewButton";
+import { isProjectionNameField, maskDisplayName, useProjectionSafe } from "@/lib/projection-safe";
 
 interface StudentRecord {
   studentId: string;
@@ -170,6 +171,7 @@ function buildDefaultConfig(records: QfRecordItem[]): AiDashboardConfig {
 
 export default function ExplorationAnalysisPage() {
   const router = useRouter();
+  const projectionSafe = useProjectionSafe();
   const params = useParams();
   const explorationId = params.explorationId as string;
 
@@ -193,6 +195,15 @@ export default function ExplorationAnalysisPage() {
   const [aiDashLoading, setAiDashLoading] = useState(false);
   const [aiDashError, setAiDashError] = useState("");
   const [aiDashInstruction, setAiDashInstruction] = useState("");
+
+  // 大屏全屏展示（课堂投屏）：真 Fullscreen API，退出态与浏览器 Esc 同步
+  const [dashFullscreen, setDashFullscreen] = useState(false);
+  const dashStageRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const onChange = () => setDashFullscreen(document.fullscreenElement === dashStageRef.current);
+    document.addEventListener("fullscreenchange", onChange);
+    return () => document.removeEventListener("fullscreenchange", onChange);
+  }, []);
 
   // 手动微调编辑器（AI 初稿 + 手动微调）
   const [editing, setEditing] = useState(false);
@@ -570,6 +581,19 @@ export default function ExplorationAnalysisPage() {
     }
   };
 
+  /** 大屏全屏展示：浏览器拒绝全屏时退回提示 F11（不阻断展示） */
+  const toggleDashFullscreen = async () => {
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      } else {
+        await dashStageRef.current?.requestFullscreen();
+      }
+    } catch {
+      MessagePlugin.warning("浏览器未允许全屏，请按 F11 进入全屏");
+    }
+  };
+
   const fetchAiVersions = async (classId: string) => {
     try {
       const token = localStorage.getItem("token");
@@ -687,6 +711,14 @@ export default function ExplorationAnalysisPage() {
         <div className="flex items-center gap-2 flex-wrap mb-3">
           <Button
             size="small"
+            variant="outline"
+            disabled={editing || aiDashLoading}
+            onClick={toggleDashFullscreen}
+          >
+            {dashFullscreen ? "退出全屏" : "全屏展示"}
+          </Button>
+          <Button
+            size="small"
             theme="primary"
             loading={aiDashLoading}
             onClick={handleGenerateAiDashboard}
@@ -750,18 +782,46 @@ export default function ExplorationAnalysisPage() {
               {aiDashError}
             </div>
           )}
-          {editing && aiDashConfig ? (
-            <DashboardEditor
-              config={aiDashConfig}
-              fields={dashboardFields}
-              onSave={handleSaveDashboard}
-              onCancel={handleCancelEdit}
-            />
-          ) : aiDashConfig ? (
-            <QuickFormAiDashboard records={qfRecords} total={qfTotal} config={aiDashConfig} />
-          ) : (
-            <QuickFormDashboard records={qfRecords} total={qfTotal} />
-          )}
+          {/* 全屏舞台：工具栏留在外侧，全屏后只看到图表；Esc 或右上角按钮退出 */}
+          <div
+            ref={dashStageRef}
+            className={dashFullscreen ? "fixed inset-0 z-[1000] flex flex-col overflow-hidden bg-white" : ""}
+          >
+            {dashFullscreen && (
+              <div className="shrink-0 z-10 flex justify-end px-4 py-2">
+                <Button size="small" theme="default" onClick={toggleDashFullscreen}>
+                  退出全屏（Esc）
+                </Button>
+              </div>
+            )}
+            {/* 全屏时舞台本身是 flex-col，大屏组件用 flex-1 min-h-0 吃掉整屏剩余高度，整屏不滚动。 */}
+            <div className={dashFullscreen ? "flex-1 min-h-0 overflow-hidden" : ""}>
+            {editing && aiDashConfig ? (
+              <DashboardEditor
+                config={aiDashConfig}
+                fields={dashboardFields}
+                numericFields={analyzeFields(qfRecords)
+                  .filter((f) => f.kind === "numeric")
+                  .map((f) => f.key)}
+                onSave={handleSaveDashboard}
+                onCancel={handleCancelEdit}
+              />
+            ) : aiDashConfig ? (
+              <QuickFormAiDashboard
+                records={qfRecords}
+                total={qfTotal}
+                config={aiDashConfig}
+                fullscreen={dashFullscreen}
+              />
+            ) : (
+              <QuickFormDashboard
+                records={qfRecords}
+                total={qfTotal}
+                fullscreen={dashFullscreen}
+              />
+            )}
+            </div>
+          </div>
         </div>
       );
     }
@@ -869,9 +929,9 @@ export default function ExplorationAnalysisPage() {
               <div key={field}>
                 <h3 className="text-sm font-medium text-[var(--muted)] mb-3">{fieldLabels[field] || field}</h3>
                 <div className="flex flex-wrap gap-2">
-                  {entries.map(([item, count]) => (
+                  {entries.map(([item, count], index) => (
                     <div key={item} className="bg-[var(--hover-bg)] rounded-full px-3 py-1 text-xs">
-                      <span className="text-[var(--muted)]">{item}</span>
+                      <span className="text-[var(--muted)]">{projectionSafe && isProjectionNameField(field) ? maskDisplayName(item, index) : item}</span>
                       <span className="ml-1 font-medium text-[var(--foreground)]">{count}人</span>
                     </div>
                   ))}
@@ -893,9 +953,9 @@ export default function ExplorationAnalysisPage() {
               <h3 className="text-sm font-medium text-[var(--muted)] mb-3">{fieldLabels[field] || field}</h3>
               {uniqueValues.length <= 3 ? (
                 <div className="space-y-2">
-                  {sorted.map(([val, count]) => (
+                  {sorted.map(([val, count], index) => (
                     <div key={val} className="flex items-center gap-3 text-xs">
-                      <span className="w-20 text-[var(--muted)] truncate">{val}</span>
+                      <span className="w-20 text-[var(--muted)] truncate">{projectionSafe && isProjectionNameField(field) ? maskDisplayName(val, index) : val}</span>
                       <div className="flex-1 bg-[var(--primary-lighter)] rounded-full h-3">
                         <div
                           className="bg-[var(--primary)] rounded-full h-3 transition-all"
@@ -908,9 +968,9 @@ export default function ExplorationAnalysisPage() {
                 </div>
               ) : (
                 <div className="flex flex-wrap gap-2">
-                  {sorted.map(([val, count]) => (
+                  {sorted.map(([val, count], index) => (
                     <div key={val} className="bg-[var(--hover-bg)] rounded-full px-3 py-1 text-xs">
-                      <span className="text-[var(--foreground)]">{val}</span>
+                      <span className="text-[var(--foreground)]">{projectionSafe && isProjectionNameField(field) ? maskDisplayName(val, index) : val}</span>
                       <span className="ml-1 text-[var(--muted-light)]">({count}人)</span>
                     </div>
                   ))}
@@ -957,7 +1017,7 @@ export default function ExplorationAnalysisPage() {
       }
     };
 
-    const renderAnswersDetail = (answers: Record<string, any>, canvasShots: string[]) => {
+    const renderAnswersDetail = (answers: Record<string, any>, canvasShots: string[], displayName: string) => {
       const fieldLabels: Record<string, string> = {
         timeSpent: "停留时间（秒）",
         interactions: "互动次数",
@@ -983,7 +1043,7 @@ export default function ExplorationAnalysisPage() {
                 <div key={key} className="bg-[var(--hover-bg)] rounded px-3 py-2">
                   <div className="text-xs text-[var(--muted-light)]">{fieldLabels[key] || key}</div>
                   <div className="text-sm font-medium text-[var(--foreground)] mt-0.5">
-                    {key === "completedSections"
+                    {projectionSafe && isProjectionNameField(key) ? displayName : key === "completedSections"
                       ? (Array.isArray(val) && val.length > 0 ? val.join("、") : "无")
                       : Array.isArray(val) ? val.join("、") : String(val)}
                   </div>
@@ -1050,7 +1110,11 @@ export default function ExplorationAnalysisPage() {
           共 {submissions.length} 人提交
         </div>
 
-        {submissions.map((sub) => {
+        {submissions.map((sub, index) => {
+          // MUST KEEP THE SAME ALIAS IN DETAILS: 行为列表与姓名字段都按列表序号展示。
+          // 📐 CONTRACT: 原 answers 和快照不修改；🔗 RELATED: projection-safe.ts 与 QuickFormRecordList。
+          // ⛔ DO NOT REVERT: 不在展开的结构化姓名字段重新显示原名。
+          const displayName = projectionSafe ? maskDisplayName(sub.studentName, index) : sub.studentName;
           let answers: any = {};
           try { answers = JSON.parse(sub.answers || "{}"); } catch { }
           const isExpanded = expandedIds.has(sub.id);
@@ -1067,7 +1131,7 @@ export default function ExplorationAnalysisPage() {
                 onClick={() => toggleExpand(sub.id, sub.studentId, displayAnswers.canvasCount || 0)}
               >
                 <div className="flex items-center gap-3">
-                  <span className="font-medium text-[var(--foreground)]">{sub.studentName}</span>
+                  <span className="font-medium text-[var(--foreground)]">{displayName}</span>
                   <span className="text-xs text-[var(--muted-light)]">
                     {new Date(sub.submittedAt).toLocaleString()}
                   </span>
@@ -1081,7 +1145,7 @@ export default function ExplorationAnalysisPage() {
                 <div className="px-4 py-3 space-y-4 border-t border-[var(--card-border)]">
                   <div>
                     <h5 className="text-xs font-medium text-[var(--muted)] mb-2">📊 提交数据</h5>
-                    {renderAnswersDetail(displayAnswers, canvasShots)}
+                    {renderAnswersDetail(displayAnswers, canvasShots, displayName)}
                   </div>
                   <div>
                     <h5 className="text-xs font-medium text-[var(--muted)] mb-2">📋 操作记录</h5>

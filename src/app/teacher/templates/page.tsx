@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
-import { Card, MessagePlugin, Button, Tag } from "tdesign-react";
+import { Card, Dialog, MessagePlugin, Button, Tabs, Tag } from "tdesign-react";
 import {
   AddIcon,
   EditIcon,
@@ -121,6 +121,170 @@ const TYPE_CONFIG = {
     color: "var(--danger)",
   },
 } as const;
+
+const PROMPT_VERSION_MODELS: Record<string, string> = {
+  PresetConversation: "对话活动",
+  ExplorationActivity: "探究活动",
+  QuizActivity: "课堂作业",
+  AnalysisTemplate: "分析模板",
+  LearningTask: "课堂",
+};
+
+const PROMPT_VERSION_LABELS: Record<string, string> = {
+  systemPrompt: "系统提示词",
+  analysisPrompt: "分析提示词",
+  classAnalysisPrompt: "班级分析提示词",
+  designPrompt: "设计提示词",
+  aiCompanionPrompt: "伴学提示词",
+  content: "模板正文",
+};
+
+type PromptVersionRow = {
+  id: string;
+  targetModel: string;
+  targetId: string;
+  label: string | null;
+  version: number;
+  changeSource: string | null;
+  createdAt: string;
+};
+type PromptSnapshot = Record<string, string | null>;
+type PromptVersionDetail = { oldSnapshot: PromptSnapshot; newSnapshot: PromptSnapshot };
+
+async function promptVersionRequest<T>(url: string, options?: RequestInit): Promise<T> {
+  const token = localStorage.getItem("token") || "";
+  const res = await fetch(url, { ...options, headers: { Authorization: `Bearer ${token}` } });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.error || (res.status === 401 ? "请先登录" : "提示词版本操作失败"));
+  }
+  return res.json();
+}
+
+// MUST LOAD PROMPT BODIES ON DEMAND: 列表请求不取正文，打开对照时才读取对应版本。
+// 📐 CONTRACT: 回滚到版本的修改前；🔗 RELATED: /api/prompt-versions 的列表、详情和回滚。
+// ⛔ DO NOT REVERT: 不复用模板编辑草稿，也不把提示词作为 HTML 渲染。
+function PromptVersionPanel({ onTemplateRestored }: { onTemplateRestored: () => void }) {
+  const pageSize = 50;
+  const [model, setModel] = useState("");
+  const [offset, setOffset] = useState(0);
+  const [reload, setReload] = useState(0);
+  const [versions, setVersions] = useState<PromptVersionRow[]>([]);
+  const [hasMore, setHasMore] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [selected, setSelected] = useState<PromptVersionRow | null>(null);
+  const [detail, setDetail] = useState<PromptVersionDetail | null>(null);
+  const [detailError, setDetailError] = useState("");
+  const [restoring, setRestoring] = useState(false);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const query = new URLSearchParams({ take: String(pageSize), skip: String(offset) });
+    if (model) query.set("targetModel", model);
+    setLoading(true);
+    setError("");
+    promptVersionRequest<{ versions: PromptVersionRow[]; hasMore: boolean }>(
+      `/api/prompt-versions?${query}`, { signal: controller.signal },
+    ).then((data) => {
+      if (controller.signal.aborted) return;
+      setVersions(data.versions);
+      setHasMore(data.hasMore);
+    }).catch((err: Error) => {
+      if (!controller.signal.aborted) setError(err.message);
+    }).finally(() => {
+      if (!controller.signal.aborted) setLoading(false);
+    });
+    return () => controller.abort();
+  }, [model, offset, reload]);
+
+  useEffect(() => {
+    if (!selected) return;
+    const controller = new AbortController();
+    promptVersionRequest<PromptVersionDetail>(`/api/prompt-versions/${encodeURIComponent(selected.id)}`, { signal: controller.signal })
+      .then((data) => { if (!controller.signal.aborted) setDetail(data); })
+      .catch((err: Error) => { if (!controller.signal.aborted) setDetailError(err.message); });
+    return () => controller.abort();
+  }, [selected]);
+
+  async function restore(row: PromptVersionRow) {
+    if (restoring || !window.confirm(`将「${row.label || row.targetId}」恢复到 v${row.version} 修改前的提示词？`)) return;
+    setRestoring(true);
+    try {
+      await promptVersionRequest(`/api/prompt-versions/${encodeURIComponent(row.id)}/restore`, { method: "POST" });
+      MessagePlugin.success("提示词已回滚");
+      setSelected(null);
+      setOffset(0);
+      setReload((value) => value + 1);
+      if (row.targetModel === "AnalysisTemplate") onTemplateRestored();
+    } catch (err) {
+      MessagePlugin.error(err instanceof Error ? err.message : "回滚失败");
+    } finally {
+      setRestoring(false);
+    }
+  }
+
+  return (
+    <div className="space-y-4 pt-4">
+      <div className="flex flex-wrap items-center gap-3">
+        <label className="text-sm text-[var(--muted)]">
+          类别
+          <select className="ml-2 rounded border border-[var(--card-border)] p-2 bg-[var(--card-bg)]" value={model}
+            disabled={restoring} onChange={(event) => { setModel(event.target.value); setOffset(0); }}>
+            <option value="">全部类别</option>
+            {Object.entries(PROMPT_VERSION_MODELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          </select>
+        </label>
+        <span className="text-xs text-[var(--muted)]">回滚会恢复到所选版本修改前的内容。</span>
+      </div>
+      {loading ? <p role="status" className="text-sm text-[var(--muted)]">正在读取版本…</p>
+        : error ? <p role="alert" className="text-sm text-red-600">{error}</p>
+        : versions.length === 0 ? <p className="text-sm text-[var(--muted)]">暂无提示词版本。</p>
+        : <div className="divide-y rounded border border-[var(--card-border)] bg-[var(--card-bg)]">
+          {versions.map((row) => (
+            <div key={row.id} className="flex flex-wrap items-center justify-between gap-3 p-3">
+              <div className="min-w-0">
+                <p className="break-words text-sm font-medium">{PROMPT_VERSION_MODELS[row.targetModel] || row.targetModel} · {row.label || row.targetId}</p>
+                <p className="mt-1 text-xs text-[var(--muted)]">
+                  v{row.version} · {row.changeSource === "restore" ? "回滚" : "编辑"} · {new Date(row.createdAt).toLocaleString("zh-CN")}
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <Button size="small" variant="outline" disabled={restoring} onClick={() => {
+                  setDetail(null);
+                  setDetailError("");
+                  setSelected(row);
+                }}>查看</Button>
+                <Button size="small" variant="text" disabled={restoring} onClick={() => void restore(row)}>回滚到此处</Button>
+              </div>
+            </div>
+          ))}
+        </div>}
+      {!error && (offset > 0 || hasMore) && <div className="flex items-center gap-2">
+        <Button size="small" variant="outline" disabled={!offset || loading || restoring} onClick={() => setOffset(offset - pageSize)}>上一页</Button>
+        <span className="text-xs text-[var(--muted)]">第 {offset / pageSize + 1} 页</span>
+        <Button size="small" variant="outline" disabled={!hasMore || loading || restoring} onClick={() => setOffset(offset + pageSize)}>下一页</Button>
+      </div>}
+      <Dialog header={selected ? `v${selected.version} · ${selected.label || selected.targetId}` : "提示词版本"}
+        visible={selected !== null} width={900} footer={null} onClose={() => setSelected(null)}>
+        {detailError ? <p role="alert" className="text-sm text-red-600">{detailError}</p>
+          : detail ? <div className="grid max-h-[65vh] gap-4 overflow-y-auto md:grid-cols-2">
+            {([["修改前", detail.oldSnapshot], ["修改后", detail.newSnapshot]] as const).map(([label, snapshot]) => (
+              <div className="min-w-0 space-y-2" key={label}>
+                <h3 className="font-medium">{label}</h3>
+                {Object.entries(snapshot).map(([field, value]) => (
+                  <details open className="rounded border border-[var(--card-border)] p-2" key={field}>
+                    <summary className="cursor-pointer text-sm">{PROMPT_VERSION_LABELS[field] || field}</summary>
+                    <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words text-xs">{value || "（空）"}</pre>
+                  </details>
+                ))}
+              </div>
+            ))}
+          </div> : <p role="status" className="text-sm text-[var(--muted)]">正在读取快照…</p>}
+      </Dialog>
+    </div>
+  );
+}
 
 export default function TemplateSettingsPage() {
   const [studentTemplates, setStudentTemplates] = useState<AnalysisTemplate[]>([]);
@@ -1128,6 +1292,8 @@ export default function TemplateSettingsPage() {
             </p>
           </div>
 
+        <Tabs defaultValue="templates">
+          <Tabs.TabPanel value="templates" label="模板管理" destroyOnHide={false}>
         {loading ? (
           <div className="text-center text-[var(--muted-light)] py-20">加载中...</div>
         ) : (
@@ -1135,6 +1301,11 @@ export default function TemplateSettingsPage() {
             {(["student", "class", "conversation", "QUIZ_DESIGN", "QUIZ_ANALYSIS", "EXPLORATION_ANALYSIS"] as const).map(renderCategory)}
           </div>
         )}
+          </Tabs.TabPanel>
+          <Tabs.TabPanel value="versions" label="提示词版本">
+            <PromptVersionPanel onTemplateRestored={() => void fetchTemplates()} />
+          </Tabs.TabPanel>
+        </Tabs>
 
         {/* 模板编辑弹窗 */}
         {/* ⛔ DO NOT REVERT：遮罩层禁止 onClick 关闭弹窗——教师反馈点击弹窗外会静默丢失未保存的模板内容，只允许 × / 取消 / 保存 关闭 */}

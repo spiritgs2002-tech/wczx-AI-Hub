@@ -13,6 +13,7 @@
  */
 
 import { Fragment, useMemo, useState } from "react";
+import { isProjectionNameField, maskDisplayName, useProjectionSafe } from "@/lib/projection-safe";
 import type { QfRecordItem } from "./QuickFormDashboard";
 
 interface Props {
@@ -60,6 +61,7 @@ function formatTime(s: string): string {
 }
 
 export default function QuickFormRecordList({ records, total }: Props) {
+  const safe = useProjectionSafe();
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [keyword, setKeyword] = useState("");
 
@@ -122,7 +124,7 @@ export default function QuickFormRecordList({ records, total }: Props) {
         <input
           value={keyword}
           onChange={(e) => setKeyword(e.target.value)}
-          placeholder="搜索姓名或任意内容"
+          placeholder={safe ? "搜索提交内容（姓名已隐藏）" : "搜索姓名或任意内容"}
           className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#0052D9] w-56"
         />
       </div>
@@ -145,15 +147,22 @@ export default function QuickFormRecordList({ records, total }: Props) {
             {filtered.length === 0 && (
               <tr>
                 <td colSpan={colCount} className="px-4 py-8 text-center text-sm text-gray-400">
-                  没有匹配「{keyword}」的记录
+                  {safe ? "没有匹配的记录" : <>没有匹配「{keyword}」的记录</>}
                 </td>
               </tr>
             )}
             {filtered.map((r) => {
               const data = r.data || {};
               const isOpen = expanded.has(r.recordId);
-              const name = nameKey ? renderValue(data[nameKey]) : pickName(data, records.indexOf(r));
-              const allEntries: [string, string][] = fieldOrder.map((k) => [k, renderValue(data[k])]);
+              const index = records.indexOf(r);
+              const name = nameKey ? renderValue(data[nameKey]) : pickName(data, index);
+              // MUST MASK ALL NAME CELLS: 同一记录的姓名列、title、备用姓名字段及展开详情共用别名。
+              // 📐 CONTRACT: 使用原记录序号，搜索和展开状态不变；🔗 RELATED: projection-safe.ts。
+              // ⛔ DO NOT REVERT: 不仅改姓名主列，否则明细仍会显示原名。
+              const shownName = safe ? maskDisplayName(name, index) : name;
+              const displayField = (key: string) => safe && (key === nameKey || isProjectionNameField(key))
+                ? shownName : renderValue(data[key]);
+              const allEntries: [string, string][] = fieldOrder.map((k) => [k, displayField(k)]);
 
               return (
                 <Fragment key={r.recordId}>
@@ -162,17 +171,17 @@ export default function QuickFormRecordList({ records, total }: Props) {
                     onClick={() => toggle(r.recordId)}
                   >
                     <td className="px-4 py-2.5 font-medium text-gray-800 whitespace-nowrap">
-                      <span className="inline-flex items-center gap-2">
+                      <span className="inline-flex items-center gap-2" title={safe ? shownName : undefined}>
                         <span className="w-5 h-5 shrink-0 rounded-full bg-blue-50 text-blue-600 text-[11px] flex items-center justify-center">
-                          {records.indexOf(r) + 1}
+                          {index + 1}
                         </span>
-                        {name}
+                        {shownName}
                       </span>
                     </td>
                     {shownKeys.map((k) => (
                       <td key={k} className="px-4 py-2.5 text-gray-600 max-w-[220px]">
-                        <span className="block truncate" title={renderValue(data[k])}>
-                          {renderValue(data[k])}
+                        <span className="block truncate" title={displayField(k)}>
+                          {displayField(k)}
                         </span>
                       </td>
                     ))}

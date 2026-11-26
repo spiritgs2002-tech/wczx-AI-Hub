@@ -261,6 +261,15 @@ export function parseQuestionsFromAIResponse(
     // 先归一化：AI 常返回 "single" / "多选" / "truefalse" 等非规范写法，
     // 直接入库会导致批改时白名单匹配失败 → 整题不批改 → 静默 0 分
     let type = normalizeQuestionType(q.type) || "SINGLE_CHOICE";
+    // MUST KEEP SUBJECTIVE ANSWERS AS TEXT: 客观题答案形态推断会把参考答案误判为多选。
+    // 📐 CONTRACT: 显式填空/简答保留答案文本和空选项；🔗 RELATED: ai-grading.ts、QuizPanel.tsx。
+    // ⛔ DO NOT REVERT: 不把主观题文本转成大写选项字母，否则评分要点会丢失。
+    if (type === "FILL_BLANK" || type === "SHORT_ANSWER") {
+      return {
+        type, content, options: {}, answer: String(q.answer ?? ""),
+        difficulty: q.difficulty || "BASIC", explanation: q.explanation || null,
+      };
+    }
     let answer = String(q.answer || "").toUpperCase().trim();
 
     // 如果答案只有 T/F 或选项有 T/F，判定为判断题
@@ -298,21 +307,21 @@ export const QUIZ_MATH_JSON_NOTE = `注意：本题目最终以 JSON 文本输�
  * 统一输出格式要求 - 由程序控制，教师模板不包含此内容
  *（buildQuizGeneratePrompt 在模板不含"输出格式"字样时自动追加，出题 AI 只需按此交卷）
  *
- * ⛔ DO NOT ADD FILL_BLANK / SHORT_ANSWER BACK to the type list。
- * 原因：学生答题界面（src/app/student/chat/QuizPanel.tsx）是纯点选 UI，没有文本输入框，
- * 主观题学生无法作答 → 提交时该题空答案 → aiGrade 记 0 分；教师端作业预览弹窗
- * （src/app/teacher/tasks/page.tsx 作业预览）也没有主观题渲染分支，显示为空白。
- * 实测（2026-10-10）：协议含 FILL_BLANK 时 AI 确实会出填空题，形成"能出不能答"的断头链路。
- * 若未来要支持主观题，必须三处同步：① 学生端 QuizPanel 加文本输入框；② 此处恢复题型；
- * ③ 教师端预览弹窗加主观题渲染分支。批阅侧 src/lib/ai-grading.ts 已支持主观题 AI 评分，无需改动。
+ * ⛔ DO NOT REMOVE FILL_BLANK / SHORT_ANSWER from the type list。
+ * 🧪 MEASURED（2026-10-10）：旧学生端只有点选，协议出填空题后学生无法作答，空答案由 aiGrade 记 0 分；
+ * 教师端作业预览也曾显示为空白。旧限制用于避免这一断头链路。
+ * 📐 CONTRACT: 现已同步出题协议、学生端文字输入和教师端只读预览。
+ * 🔗 RELATED: src/app/student/chat/QuizPanel.tsx、src/app/teacher/tasks/page.tsx 的作业预览、
+ * src/app/teacher/activities/[subProjectId]/quiz/[quizId]/questions/page.tsx、src/lib/ai-grading.ts。
+ * ⛔ DO NOT REVERT: 主观题始终保留三处支持，题型扩展时同时检查编辑、作答和评分。
  */
 export const QUIZ_FORMAT_INSTRUCTIONS = `
 ## 输出格式（必须严格遵守）
 每道题必须包含以下字段的JSON对象，总分数必须等于100：
-- type: SINGLE_CHOICE | MULTIPLE_CHOICE（多选答案用逗号如"A,B"） | TRUE_FALSE（答案 T 或 F）
+- type: SINGLE_CHOICE | MULTIPLE_CHOICE（多选答案用逗号如"A,B"） | TRUE_FALSE（答案 T 或 F） | FILL_BLANK | SHORT_ANSWER
 - content: 题目文本
-- options: 选择题和判断题的选项对象，格式如 {"A":"选项A","B":"选项B"}
-- answer: 正确答案（多选用逗号分隔）
+- options: 选择题和判断题的选项对象，格式如 {"A":"选项A","B":"选项B"}；填空题和简答题传 {}
+- answer: 正确答案（多选用逗号分隔；填空可用 | 分隔多个可接受答案，如 "3.25|3.3"；简答写评分要点，允许同义表达）
 - score: 分值，所有题目分值之和必须等于100
 - difficulty: BASIC | INTERMEDIATE | ADVANCED
 - explanation: 答案解析
@@ -321,8 +330,9 @@ export const QUIZ_FORMAT_INSTRUCTIONS = `
 [
   {"type":"SINGLE_CHOICE","content":"题目","options":{"A":"A"},"answer":"A","score":20,"difficulty":"BASIC","explanation":"解析"},
   {"type":"MULTIPLE_CHOICE","content":"多选","options":{"A":"A"},"answer":"A,B","score":20,"difficulty":"BASIC","explanation":"解析"},
-  {"type":"TRUE_FALSE","content":"判断","answer":"T","score":20,"difficulty":"BASIC"}
+  {"type":"TRUE_FALSE","content":"判断","options":{"T":"正确","F":"错误"},"answer":"T","score":20,"difficulty":"BASIC"},
+  {"type":"SHORT_ANSWER","content":"说明这组数据为什么用中位数更合适。","options":{},"answer":"指出存在极端值；说明平均数被拉高；解释中位数更能代表典型水平。","score":40,"difficulty":"INTERMEDIATE","explanation":"比较极端值对两种统计量的影响。"}
 ]
-只允许出单选题、多选题、判断题三种客观题，不要出填空题、简答题等需要学生输入文字的题型。
+当模板要求学生说明理由、解释或回答为什么时，优先出 SHORT_ANSWER，并将 answer 写成可逐条评分的要点。
 请直接输出JSON数组，不要使用代码块包裹，不要添加任何解释性文字。只需输出纯JSON数组。
 `;

@@ -5,8 +5,12 @@
  * 📐 CONTRACT（来源：ima 官方 skill 包 ima-skills-1.1.2 的 knowledge-base/references/api.md）：
  *   - 只发往 https://ima.qq.com/openapi/wiki/v1/<接口>，HTTP POST + JSON；
  *   - 鉴权 Header：ima-openapi-clientid / ima-openapi-apikey（在 https://ima.qq.com/agent-interface 获取）；
- *   - 统一返回 { retcode, errmsg, data }，retcode≠0 时 errmsg 直接给用户看；
+ *   - 统一返回 { code, msg, data }，code=0 时读取 data，code≠0 时把 msg 给用户看；
+ *   - 兼容历史格式 { retcode, errmsg, data }，优先读取 code/msg；
+ *   - 官方业务错误码为 110001 等六位数，HTTP 200 不是业务错误码；
  *   - 游标翻页：cursor 首次传 ""，is_end=false 时用 next_cursor 继续。
+ *   - search_knowledge_base 的 limit 为 1–20；get_knowledge_list 的 limit 为 1–50。
+ *   - search_knowledge_base 线上返回 kb_id/kb_name，兼容文档中的 id/name。
  * ⚠️ GOTCHA：ima 知识库接口**没有获取文件全文**的能力，只能 search_knowledge 拿到标题 + 高亮片段（highlight_content）。
  *   所以课堂引用 ima 知识库 = 学生每次提问时实时检索片段喂给 AI（RAG），而不是像本地知识库那样整段拼进提示词。
  * ⛔ DO NOT 把凭证下发到浏览器、写进日志或发往 ima.qq.com 以外的地址。
@@ -61,14 +65,17 @@ async function call<T>(creds: ImaCredentials, path: string, body: Record<string,
   } finally {
     clearTimeout(timer);
   }
-  let json: { retcode?: number; errmsg?: string; data?: T };
+  let json: { code?: number; msg?: string; retcode?: number; errmsg?: string; data?: T };
   try {
     json = await res.json();
   } catch {
     throw new ImaError(`ima 返回异常（HTTP ${res.status}）`);
   }
-  if (json.retcode !== 0) {
-    throw new ImaError(json.errmsg || `ima 接口错误（${json.retcode ?? res.status}）`, json.retcode);
+  // ⛔ DO NOT REVERT: 官方响应没有 retcode 时仍可成功；_shared.ts 继续从 ImaError.retcode 取业务码。
+  const code = json.code ?? json.retcode;
+  const msg = json.msg ?? json.errmsg;
+  if (code !== 0) {
+    throw new ImaError(msg || `ima 接口错误（${code ?? res.status}）`, code);
   }
   return (json.data ?? {}) as T;
 }
@@ -83,10 +90,18 @@ export async function listImaKnowledgeBases(creds: ImaCredentials, query = ""): 
   const out: ImaKnowledgeBase[] = [];
   let cursor = "";
   for (let page = 0; page < 10; page++) {
-    const data = await call<{ info_list?: ImaKnowledgeBase[]; is_end?: boolean; next_cursor?: string }>(
-      creds, "search_knowledge_base", { query, cursor, limit: 50 },
-    );
-    out.push(...(data.info_list || []).map((k) => ({ id: k.id, name: k.name, cover_url: k.cover_url })));
+    const data = await call<{
+      info_list?: Array<{ id?: string; name?: string; kb_id?: string; kb_name?: string; cover_url?: string }>;
+      is_end?: boolean;
+      next_cursor?: string;
+    }>(creds, "search_knowledge_base", { query, cursor, limit: 20 });
+    // ⛔ DO NOT REVERT: 线上字段优先；前端列表和后续请求均依赖有效的 id。
+    for (const k of data.info_list || []) {
+      const id = k.kb_id ?? k.id;
+      const name = k.kb_name ?? k.name;
+      if (!id) continue;
+      out.push({ id, name: name || id, cover_url: k.cover_url });
+    }
     if (data.is_end !== false || !data.next_cursor) break;
     cursor = data.next_cursor;
   }

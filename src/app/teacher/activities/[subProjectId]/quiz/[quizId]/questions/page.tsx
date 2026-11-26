@@ -91,6 +91,10 @@ export default function TeacherQuizQuestionsPage() {
         if (!q.answer || q.answer.split(",").filter(Boolean).length === 0) return `第 ${i + 1} 题：多选题至少选择一个答案`;
         const opts = typeof q.options === "string" ? JSON.parse(q.options || "{}") : (q.options || {});
         if (!opts.A?.trim() || !opts.B?.trim()) return `第 ${i + 1} 题：至少填写 A、B 两个选项`;
+      } else if (type === "FILL_BLANK" || type === "SHORT_ANSWER") {
+        // ⛔ DO NOT REVERT: 主观题只校验参考答案/评分要点；要求 A/B 选项会阻断保存。
+        // 🔗 RELATED: 本页 QuestionCard、QuizPanel.tsx、prompts/quiz.ts 必须同步支持这两种题型。
+        if (!q.answer?.trim()) return `第 ${i + 1} 题：请填写参考答案或评分要点`;
       }
     }
     return null;
@@ -116,7 +120,10 @@ export default function TeacherQuizQuestionsPage() {
     const res = await fetch(`/api/quiz-activities/${quizId}/questions`, {
       method: "PUT",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ questions }),
+      // 📐 CONTRACT: 主观题落库时选项必须为空对象；旧题在编辑态切换题型时可能仍带旧选项。
+      body: JSON.stringify({ questions: questions.map((q) =>
+        ["FILL_BLANK", "SHORT_ANSWER"].includes(normalizeQuestionType(q.type) || "") ? { ...q, options: {} } : q
+      ) }),
     });
     setSaving(false);
     if (res.ok) {
@@ -198,15 +205,20 @@ export default function TeacherQuizQuestionsPage() {
           throw new Error("JSON 格式不正确，需包含 questions 数组");
         }
         // 标准化
-        const standardized = imported.map((q: any, i: number) => ({
-          type: q.type || "SINGLE_CHOICE",
-          content: q.content || "",
-          options: typeof q.options === "string" ? q.options : JSON.stringify(q.options || {}),
-          answer: q.answer || "A",
-          difficulty: q.difficulty || "BASIC",
-          explanation: q.explanation || "",
-          order: i,
-        }));
+        // ⚠️ GOTCHA: 空的主观题答案不能回退成客观题默认答案 A，否则会被当作评分要点保存。
+        const standardized = imported.map((q: any, i: number) => {
+          const type = normalizeQuestionType(q.type) || q.type || "SINGLE_CHOICE";
+          const subjective = type === "FILL_BLANK" || type === "SHORT_ANSWER";
+          return {
+            type,
+            content: q.content || "",
+            options: subjective ? "{}" : typeof q.options === "string" ? q.options : JSON.stringify(q.options || {}),
+            answer: subjective ? String(q.answer ?? "") : q.answer || "A",
+            difficulty: q.difficulty || "BASIC",
+            explanation: q.explanation || "",
+            order: i,
+          };
+        });
         setQuestions((prev) => [...prev, ...standardized]);
         MessagePlugin.success(`成功导入 ${standardized.length} 道题`);
       } catch (err: any) {
@@ -220,7 +232,14 @@ export default function TeacherQuizQuestionsPage() {
   };
 
   const updateQuestion = (idx: number, field: keyof Question, value: any) => {
-    setQuestions((prev) => prev.map((q, i) => i === idx ? { ...q, [field]: value } : q));
+    setQuestions((prev) => prev.map((q, i) => {
+      if (i !== idx) return q;
+      if (field !== "type") return { ...q, [field]: value };
+      const wasSubjective = ["FILL_BLANK", "SHORT_ANSWER"].includes(normalizeQuestionType(q.type) || "");
+      const isSubjective = value === "FILL_BLANK" || value === "SHORT_ANSWER";
+      // ⛔ DO NOT REVERT: 跨主客观题切换时清空旧答案，防止 A/T 被当作评分要点或反向写入文本答案。
+      return { ...q, type: value, answer: wasSubjective === isSubjective ? q.answer : isSubjective ? "" : value === "TRUE_FALSE" ? "T" : "A" };
+    }));
   };
 
   const moveUp = (idx: number) => {
@@ -333,7 +352,9 @@ export default function TeacherQuizQuestionsPage() {
 
 /* ---- 题目卡片组件 ---- */
 function QuestionCard({ q, idx, total, onUpdate, onDelete, onMoveUp, onMoveDown, onPreview, disabled = false }: any) {
-  const opts = typeof q.options === "string" ? JSON.parse(q.options || "{}") : (q.options || {});
+  const type = normalizeQuestionType(q.type);
+  const subjective = type === "FILL_BLANK" || type === "SHORT_ANSWER";
+  const opts = subjective ? {} : typeof q.options === "string" ? JSON.parse(q.options || "{}") : (q.options || {});
   return (
     <div className="bg-[var(--card-bg)] rounded-xl shadow-sm p-5 border border-[var(--card-border)]">
       <div className="flex gap-2 mb-3">
@@ -343,21 +364,25 @@ function QuestionCard({ q, idx, total, onUpdate, onDelete, onMoveUp, onMoveDown,
           <button type="button" onClick={onMoveDown} disabled={disabled || idx === total - 1} className="w-5 h-4 flex items-center justify-center text-[var(--primary)] hover:text-[var(--primary-dark)] disabled:opacity-30 disabled:cursor-not-allowed text-xs">▼</button>
         </div>
         <span className="text-xs text-[var(--muted-light)] mt-1 w-6 text-right">{idx + 1}.</span>
-        {q.type === "MULTIPLE_CHOICE" && (
+        {type === "MULTIPLE_CHOICE" && (
           <span className="text-xs px-1.5 py-0.5 rounded bg-[var(--warning-light)] text-[var(--warning)] font-medium">[多选]</span>
         )}
         <select value={q.difficulty} onChange={(e) => onUpdate("difficulty", e.target.value)} disabled={disabled} className="text-xs border rounded px-2 py-1 disabled:bg-[var(--primary-lighter)]">
           <option value="BASIC">基础</option><option value="INTERMEDIATE">提升</option><option value="ADVANCED">拓展</option>
         </select>
-        <select value={q.type || "SINGLE_CHOICE"} onChange={(e) => onUpdate("type", e.target.value)} disabled={disabled} className="text-xs border rounded px-2 py-1 disabled:bg-[var(--primary-lighter)]">
-          <option value="SINGLE_CHOICE">单选</option><option value="MULTIPLE_CHOICE">多选</option><option value="TRUE_FALSE">判断</option>
+        <select value={type || "SINGLE_CHOICE"} onChange={(e) => onUpdate("type", e.target.value)} disabled={disabled} className="text-xs border rounded px-2 py-1 disabled:bg-[var(--primary-lighter)]">
+          <option value="SINGLE_CHOICE">单选</option><option value="MULTIPLE_CHOICE">多选</option><option value="TRUE_FALSE">判断</option><option value="FILL_BLANK">填空</option><option value="SHORT_ANSWER">简答</option>
         </select>
         {/* 答案设置 */}
-        {q.type === "TRUE_FALSE" ? (
+        {subjective ? type === "SHORT_ANSWER" ? (
+          <textarea value={q.answer || ""} onChange={(e) => onUpdate("answer", e.target.value)} rows={3} disabled={disabled} className="flex-1 min-w-0 text-xs border rounded px-2 py-1 disabled:bg-[var(--primary-lighter)]" placeholder="评分要点" />
+        ) : (
+          <input value={q.answer || ""} onChange={(e) => onUpdate("answer", e.target.value)} disabled={disabled} className="flex-1 min-w-0 text-xs border rounded px-2 py-1 disabled:bg-[var(--primary-lighter)]" placeholder="参考答案（多个答案用 | 分隔）" />
+        ) : type === "TRUE_FALSE" || type === "JUDGEMENT" ? (
           <select value={q.answer || "T"} onChange={(e) => onUpdate("answer", e.target.value)} disabled={disabled} className="text-xs border rounded px-2 py-1 disabled:bg-[var(--primary-lighter)]">
             <option value="T">正确(T)</option><option value="F">错误(F)</option>
           </select>
-        ) : q.type === "MULTIPLE_CHOICE" ? (
+        ) : type === "MULTIPLE_CHOICE" ? (
           <div className="flex gap-2 items-center">
             {["A","B","C","D"].map((opt: string) => {
               const list = (q.answer || "").split(",").map((s: string) => s.trim()).filter(Boolean);
@@ -380,7 +405,8 @@ function QuestionCard({ q, idx, total, onUpdate, onDelete, onMoveUp, onMoveDown,
         <button onClick={onDelete} disabled={disabled} className="ml-auto text-xs text-[var(--primary)] hover:text-[var(--primary-dark)] disabled:text-[var(--muted-light)] disabled:cursor-not-allowed">删除</button>
       </div>
       <textarea value={q.content} onChange={(e) => onUpdate("content", e.target.value)} rows={2} disabled={disabled} className="w-full border rounded-lg px-3 py-2 text-sm mb-3 disabled:bg-[var(--primary-lighter)]" placeholder="题目内容" />
-      {q.type !== "TRUE_FALSE" && (
+      {/* 🔗 RELATED: 保存映射也必须清空主观题 options，隐藏输入区本身不足以保证数据正确。 */}
+      {!subjective && type !== "TRUE_FALSE" && type !== "JUDGEMENT" && (
         <div className="grid grid-cols-2 gap-2">
           {["A","B","C","D"].map((k: string) => (
             <div key={k} className="flex items-center gap-2">
@@ -403,11 +429,11 @@ function QuestionCard({ q, idx, total, onUpdate, onDelete, onMoveUp, onMoveDown,
 
 /* ---- 题目预览组件 ---- */
 function QuestionPreview({ question, onClose }: { question: Question; onClose: () => void }) {
-  const opts = typeof question.options === "string" ? JSON.parse(question.options || "{}") : (question.options || {});
   const qType = normalizeQuestionType(question.type);
   const isJudge = qType === "TRUE_FALSE" || qType === "JUDGEMENT";
   const isMulti = qType === "MULTIPLE_CHOICE";
-  const choices = isJudge ? ["T","F"] : isMulti ? (question.answer || "").split(",").filter(Boolean) : ["A","B","C","D"];
+  const isSubjective = qType === "FILL_BLANK" || qType === "SHORT_ANSWER";
+  const opts = isSubjective ? {} : typeof question.options === "string" ? JSON.parse(question.options || "{}") : (question.options || {});
   
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={onClose}>
@@ -415,12 +441,19 @@ function QuestionPreview({ question, onClose }: { question: Question; onClose: (
         <div className="flex justify-between items-center mb-4">
           <div className="flex items-center gap-2">
             {isMulti && <span className="text-xs px-1.5 py-0.5 rounded bg-[var(--warning-light)] text-[var(--warning)] font-medium">[多选]</span>}
-            <span className="text-sm text-[var(--muted-light)]">{isJudge ? "判断题" : isMulti ? "多选题" : "单选题"} · {question.difficulty === "BASIC" ? "基础" : question.difficulty === "INTERMEDIATE" ? "提升" : "拓展"}</span>
+            <span className="text-sm text-[var(--muted-light)]">{qType === "FILL_BLANK" ? "填空题" : qType === "SHORT_ANSWER" ? "简答题" : isJudge ? "判断题" : isMulti ? "多选题" : "单选题"} · {question.difficulty === "BASIC" ? "基础" : question.difficulty === "INTERMEDIATE" ? "提升" : "拓展"}</span>
           </div>
           <button onClick={onClose} className="text-[var(--muted-light)] hover:text-[var(--muted)] text-lg">✕</button>
         </div>
         <div className="text-base text-[var(--foreground)] mb-6"><Markdown breaks>{question.content}</Markdown></div>
-        {!isJudge && (
+        {/* 📐 CONTRACT: 预览按归一化题型显示学生输入框，评分要点仅在教师预览中可见。 */}
+        {isSubjective && (
+          <div className="space-y-2">
+            <textarea readOnly rows={qType === "SHORT_ANSWER" ? 4 : 1} placeholder={qType === "SHORT_ANSWER" ? "请写出你的理由" : "请输入答案"} className="w-full border rounded-lg px-3 py-2 text-sm bg-[var(--card-bg)]" />
+            <div className="text-xs text-[var(--muted)] whitespace-pre-wrap">{qType === "SHORT_ANSWER" ? "评分要点" : "参考答案"}：{question.answer}</div>
+          </div>
+        )}
+        {!isJudge && !isSubjective && (
           <div className="space-y-3">
             {["A","B","C","D"].map((k) => opts[k] ? (
               <div key={k} className="flex items-center gap-3 p-3 border rounded-lg">
