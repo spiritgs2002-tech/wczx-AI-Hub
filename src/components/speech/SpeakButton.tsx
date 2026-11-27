@@ -10,7 +10,7 @@
 import { useEffect, useState } from "react";
 import { MessagePlugin } from "tdesign-react";
 import { PlayCircleIcon, StopCircleIcon } from "tdesign-icons-react";
-import { speakSmart, stopSpeaking, subscribeSpeakingOwner } from "@/lib/speech";
+import { getLastSpeakError, speakSmart, stopSpeaking, subscribeSpeakingOwner } from "@/lib/speech";
 
 interface Props {
   /** 要朗读的原文（Markdown + LaTeX） */
@@ -37,7 +37,13 @@ export default function SpeakButton({ text, owner, className = "" }: Props) {
       if (result === "fallback") {
         MessagePlugin.warning("语音服务暂不可用，已改用浏览器内置音色");
       } else if (result === "no-voice") {
-        MessagePlugin.warning("当前设备没有可用的语音，请检查媒体音量或改用其他设备");
+        const reason = getLastSpeakError();
+        MessagePlugin.warning(
+          reason
+            ? `朗读失败：${reason}（本设备也没有可用的内置语音）`
+            : "当前设备没有可用的语音，请检查媒体音量或改用其他设备",
+          8000,
+        );
       }
     } catch {
       MessagePlugin.error("朗读失败，请稍后重试");

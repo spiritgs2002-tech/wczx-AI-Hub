@@ -18,7 +18,7 @@ import {
 import Markdown from "@/components/Markdown";
 import SpeechControls from "@/components/speech/SpeechControls";
 import SpeakButton from "@/components/speech/SpeakButton";
-import { speakSmart, stopSpeaking } from "@/lib/speech";
+import { getLastSpeakError, speakSmart, stopSpeaking } from "@/lib/speech";
 import { getSpeechSettings } from "@/lib/speech-settings";
 import StudentLayout from "@/components/layout/StudentLayout";
 import QuizPanel from "./QuizPanel";
@@ -1235,7 +1235,13 @@ export default function StudentChatPage() {
         speakSmart(assistantContent, { owner: `msg-${assistantIndexRef.current}` }).then(
           (result) => {
             if (result === "no-voice") {
-              MessagePlugin.warning("自动朗读失败：当前设备没有可用的语音，请检查媒体音量或改用电脑");
+              const reason = getLastSpeakError();
+              MessagePlugin.warning(
+                reason
+                  ? `自动朗读失败：${reason}（本设备也没有可用的内置语音）`
+                  : "自动朗读失败：当前设备没有可用的语音，请检查媒体音量或改用电脑",
+                8000,
+              );
             }
           },
           () => {}

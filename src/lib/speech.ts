@@ -580,7 +580,10 @@ async function registerTts(text: string, voice: string): Promise<string> {
     headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
     body: JSON.stringify({ text, voice }),
   });
-  if (!res.ok) throw new Error("登记朗读文本失败");
+  if (!res.ok) {
+    const err = (await res.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(`登记朗读失败（HTTP ${res.status}${err?.error ? "，" + err.error : ""}）`);
+  }
   const data = (await res.json()) as { ok?: boolean; id?: string };
   if (!data?.ok || !data.id) throw new Error("登记朗读文本失败");
   return data.id;
@@ -620,6 +623,36 @@ function waitForVoices(timeoutMs = 1500): Promise<boolean> {
 
 export type SpeakResult = "server" | "fallback" | "no-voice" | "none";
 
+// 最近一次服务端朗读失败的原因（给提示语用）。
+// 为什么：平板没有本机语音引擎时，服务端失败只会提示「没有可用的语音」，老师无从判断是没外网、登录失效还是浏览器拦截播放
+//   （2026-11-27 平板截图）。现在把真实原因带进提示里。🔗 RELATED：SpeakButton、student/chat 自动朗读提示。
+let lastServerError = "";
+export function getLastSpeakError(): string {
+  return lastServerError;
+}
+
+/** <audio> 播放失败时，补一次 GET 拿接口的真实错误（接口在出声前失败会返回 JSON {error}） */
+async function describePlayError(e: unknown, url: string): Promise<string> {
+  const name = (e as { name?: string } | null)?.name || "";
+  if (name === "NotAllowedError") return "浏览器拦截了自动播放，请再点一次朗读按钮";
+  try {
+    const res = await fetch(url, { cache: "no-store" });
+    const type = res.headers.get("content-type") || "";
+    if (!res.ok || !type.startsWith("audio/")) {
+      const err = (await res.json().catch(() => null)) as { error?: string } | null;
+      return `语音接口返回 HTTP ${res.status}${err?.error ? "：" + err.error : ""}`;
+    }
+    try {
+      await res.body?.cancel();
+    } catch {
+      /* ignore */
+    }
+  } catch {
+    return "无法连接语音接口";
+  }
+  return (e instanceof Error && e.message) || name || "播放失败";
+}
+
 /**
  * 学生端朗读统一入口：优先服务端**流式**合成，失败自动回退浏览器内置朗读。
  *
@@ -640,6 +673,8 @@ export async function speakSmart(
   if ("speechSynthesis" in window) window.speechSynthesis.cancel();
 
   // ① 服务端流式合成：原生 <audio> 边收边播，实测约半秒出声
+  lastServerError = "";
+  let playUrl = "";
   try {
     const id = await registerTts(text, voice);
     // 取文本期间又触发了新的朗读 → 丢弃这一段，也不回退（新的那段会自己播）
@@ -647,7 +682,8 @@ export async function speakSmart(
 
     // 播放接口需要登录：<audio> 带不了请求头，令牌走查询参数（🔗 src/app/api/tts/audio/[id]/route.ts）
     const playToken = localStorage.getItem("token") || "";
-    const audio = new Audio(`/api/tts/audio/${id}?token=${encodeURIComponent(playToken)}`);
+    playUrl = `/api/tts/audio/${id}?token=${encodeURIComponent(playToken)}`;
+    const audio = new Audio(playUrl);
     // 语速交给播放器变速（变速不变调），不必每个语速各自合成一份
     audio.playbackRate = clampRate(rate);
     currentAudio = audio;
@@ -672,8 +708,13 @@ export async function speakSmart(
     audio.onended = done;
     audio.onerror = done;
     return "server";
-  } catch {
+  } catch (e) {
     if (seq === speakSeq) releaseAudio();
+    const reason = playUrl ? await describePlayError(e, playUrl) : (e instanceof Error && e.message) || "登记朗读失败";
+    if (seq === speakSeq) {
+      lastServerError = reason;
+      console.warn("[朗读] 服务端朗读失败：", reason);
+    }
   }
 
   // ② 回退：浏览器内置朗读（音色取决于学生电脑，但保证"读得出来"）。
