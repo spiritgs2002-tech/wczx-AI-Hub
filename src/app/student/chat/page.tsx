@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, type ReactNode } from "react";
-import { Button, Input, MessagePlugin, Tag } from "tdesign-react";
+import { Button, DialogPlugin, Input, MessagePlugin, Tag } from "tdesign-react";
 import {
   SendIcon,
   ImageIcon,
@@ -25,6 +25,7 @@ import QuizPanel from "./QuizPanel";
 import ExplorationPanel from "./ExplorationPanel";
 import ProjectSubmitPanel from "./ProjectSubmitPanel";
 import { pcmToWavDataUrl, mixToMono } from "@/lib/audio/wav";
+import { getHttpsSwitchUrl } from "@/lib/https-switch";
 
 // DO NOT REVERT: 老版 iOS webkitAudioContext 的 decodeAudioData 只支持回调；两条音频入口共用此包装。
 // 📐 CONTRACT: 同时接住新版返回 Promise 的拒绝，失败也必须在 finally 关闭 context，不能留下音频设备占用。
@@ -801,10 +802,39 @@ export default function StudentChatPage() {
     if (!activePresetId) return;
     // MUST KEEP HTTPS DIAGNOSTICS: HTTP 局域网入口没有 mediaDevices，与系统麦克风授权无关。
     // 🔗 RELATED: src/lib/https-entry.ts 的班级二维码；⛔ DO NOT REVERT 成单一“检查权限”提示。
+    // 2026-11-27：学生手上常没有二维码，入口已开时直接给「切换到 HTTPS」按钮（跳登录页，带上姓名）。
     if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+      const origin = window.location.origin;
+      let name = "";
+      try {
+        name = JSON.parse(localStorage.getItem("user") || "{}")?.name || "";
+      } catch {
+        // user 缓存损坏时不带姓名
+      }
+      const switchUrl = window.isSecureContext
+        ? null
+        : await getHttpsSwitchUrl(`/student${name ? `?name=${encodeURIComponent(name)}` : ""}`);
+      if (switchUrl) {
+        const dialog = DialogPlugin.confirm({
+          header: "语音录入需要切换到 HTTPS 地址",
+          body:
+            `当前通过 ${origin} 访问，浏览器禁止非 HTTPS 网页使用麦克风（与权限设置无关）。` +
+            `点「切换」后重新登录一次即可使用语音；首次打开若提示「您的连接不是私密连接」，点「高级」→「继续访问」。`,
+          confirmBtn: "切换",
+          cancelBtn: "取消",
+          onConfirm: () => {
+            dialog.destroy();
+            window.location.assign(switchUrl);
+          },
+          onClose: () => dialog.destroy(),
+        });
+        return;
+      }
       MessagePlugin.error(
-        `当前通过 ${window.location.origin} 访问，浏览器禁止非 HTTPS 网页使用麦克风（与权限设置无关）。` +
-          `请扫描老师「班级管理 → 分享」里的二维码重新进入（https 地址）`,
+        window.isSecureContext
+          ? "当前浏览器不支持麦克风录音，请换用 Edge 或 Chrome 浏览器"
+          : `当前通过 ${origin} 访问，浏览器禁止非 HTTPS 网页使用麦克风（与权限设置无关）。` +
+              `请扫描老师「班级管理 → 分享」里的二维码重新进入（https 地址）`,
         15000,
       );
       return;
