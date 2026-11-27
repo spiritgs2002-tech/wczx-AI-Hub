@@ -216,7 +216,9 @@ export default function ExplorationPanel({
             });
             const d = r.ok ? await r.json() : null;
             if (!d?.ok || !d?.id) return reply({ ok: false, text: d?.text });
-            const a = await fetch(`/api/tts/audio/${encodeURIComponent(d.id)}`);
+            const a = await fetch(`/api/tts/audio/${encodeURIComponent(d.id)}`, {
+              headers: { Authorization: `Bearer ${token}` },
+            });
             if (!a.ok) return reply({ ok: false, text: d.text });
             const audio = await a.arrayBuffer();
             return reply({ ok: true, audio, mime: a.headers.get("content-type") || "audio/mpeg", text: d.text }, [audio]);

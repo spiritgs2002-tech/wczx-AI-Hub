@@ -645,7 +645,9 @@ export async function speakSmart(
     // 取文本期间又触发了新的朗读 → 丢弃这一段，也不回退（新的那段会自己播）
     if (seq !== speakSeq) return "none";
 
-    const audio = new Audio(`/api/tts/audio/${id}`);
+    // 播放接口需要登录：<audio> 带不了请求头，令牌走查询参数（🔗 src/app/api/tts/audio/[id]/route.ts）
+    const playToken = localStorage.getItem("token") || "";
+    const audio = new Audio(`/api/tts/audio/${id}?token=${encodeURIComponent(playToken)}`);
     // 语速交给播放器变速（变速不变调），不必每个语速各自合成一份
     audio.playbackRate = clampRate(rate);
     currentAudio = audio;

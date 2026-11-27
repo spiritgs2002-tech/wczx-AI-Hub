@@ -45,10 +45,20 @@ export async function ownsPresetConversation(presetConversationId: string, teach
  * 📐 CONTRACT：不存在或不属于本人一律 false（调用方回 404）。
  * 🔗 RELATED：src/app/api/qf/records/[taskId]/route.ts、src/app/api/qf/count/[taskId]/route.ts。
  */
+// ⚠️ GOTCHA：未绑定任何探究活动的「孤儿」qf_task（历史数据或绑定被清除）无法反查教师归属。
+//   本地部署只允许一个教师账号（见 /api/auth/register），因此孤儿任务对教师角色放行不构成越权；
+//   调用方必须先确认 role === "TEACHER" 再调用本函数（2026-11-27 复核补充）。
+// ⛔ DO NOT 对学生调用本函数做放行判断；若将来支持多教师，需给 qf_task 增加 teacherId 字段后收紧孤儿分支。
 export async function ownsQfTask(qfTaskId: string, teacherId: string): Promise<boolean> {
   const ex = await prisma.explorationActivity.findFirst({
     where: { qfTaskId, SubProject: { task: { teacherId } } },
     select: { id: true },
   });
-  return !!ex;
+  if (ex) return true;
+  // 被其他教师的探究绑定 → 不属于本人
+  const boundElsewhere = await prisma.explorationActivity.findFirst({ where: { qfTaskId }, select: { id: true } });
+  if (boundElsewhere) return false;
+  // 孤儿任务：任务存在即放行（单教师部署）
+  const task = await prisma.qfTask.findUnique({ where: { id: qfTaskId }, select: { id: true } });
+  return !!task;
 }
