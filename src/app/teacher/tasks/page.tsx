@@ -1519,19 +1519,43 @@ export default function TeacherTasksPage() {
   const handleGenerateTeachingAdvice = async () => {
     if (!analysisExplorationId) return;
     setGeneratingAdvice(true);
+    // 中途失败时恢复旧建议（库里仍是旧内容，卡片不能停在半截文字上）
+    const previousAdvice = analysisData?.teachingAdvice;
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch(`/api/exploration-activities/${analysisExplorationId}/analysis`, {
+      // 流式：边生成边写入卡片（2026-11-27 性能排查：原先要等全文生成完才显示）
+      const res = await fetch(`/api/exploration-activities/${analysisExplorationId}/analysis?stream=1`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
         body: JSON.stringify({}),
       });
-      const data = await res.json();
-      if (data.advice) {
-        setAnalysisData((prev: any) => ({ ...prev, teachingAdvice: data.advice }));
+      const contentType = res.headers.get("content-type") || "";
+      if (res.ok && contentType.includes("text/plain") && res.body) {
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let text = "";
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          text += decoder.decode(value, { stream: true });
+          setAnalysisData((prev: any) => ({ ...prev, teachingAdvice: text }));
+        }
+        if (!text.trim()) {
+          setAnalysisData((prev: any) => ({ ...prev, teachingAdvice: previousAdvice }));
+          MessagePlugin.error("AI 返回了空内容，请重试");
+        }
+      } else {
+        const data = await res.json().catch(() => ({}));
+        if (data.advice) {
+          setAnalysisData((prev: any) => ({ ...prev, teachingAdvice: data.advice }));
+        } else {
+          MessagePlugin.error("生成教学建议失败");
+        }
       }
     } catch (e) {
       console.error("生成教学建议失败", e);
+      setAnalysisData((prev: any) => ({ ...prev, teachingAdvice: previousAdvice }));
+      MessagePlugin.error("生成中断，教学建议未保存，请重试");
     } finally {
       setGeneratingAdvice(false);
     }

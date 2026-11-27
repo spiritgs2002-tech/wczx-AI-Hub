@@ -7,21 +7,37 @@ import path from "path";
 // 📐 CONTRACT: 维护目录为全局锁；活动标记只记录进程号和随机值，不含用户数据；恢复上下文自身可继续。
 // 🔗 RELATED: src/lib/prisma.ts、teacher-restore.ts、project-submit.ts、image-library.ts。
 // ⛔ DO NOT REVERT: 仅依赖进程内计数会漏掉另一服务进程的写入，导致备份不完整。
-type Activity = { count: number; marker?: string };
+type Activity = { count: number; marker?: string; releaseTimer?: ReturnType<typeof setTimeout> };
 const globalStore = globalThis as typeof globalThis & { __wczxRestoreAccess?: AsyncLocalStorage<boolean>; __wczxActiveDataAccess?: Activity };
 const restoreAccess = globalStore.__wczxRestoreAccess ??= new AsyncLocalStorage<boolean>();
 const active = globalStore.__wczxActiveDataAccess ??= { count: 0 };
 const activityDir = () => path.join(process.cwd(), ".teacher-active");
+// MUST NOT TOUCH DISK ON EVERY QUERY: 原先每次数据库查询都同步「建目录 + 写标记文件 + 删标记文件」，
+//   连续查询时磁盘 I/O 叠加并阻塞事件循环（2026-11-27 性能排查）。
+// 现状：标记文件在空闲 MARKER_LINGER_MS 后才删除；期间的新查询直接复用，不再重复建删。
+// 📐 CONTRACT: 恢复仍以「标记文件存在」判断有活跃访问；最多多等 MARKER_LINGER_MS（远小于 30 秒等待上限）。
+//   已有标记时无需二次检查恢复标志：恢复开始后会等待该标记删除。
+// 🔗 RELATED: waitForTrackedDataAccess（恢复端轮询标记目录）。
+// ⛔ DO NOT REVERT 成「计数归零立即删文件」：那样每条查询都会产生一次建删磁盘操作。
+const MARKER_LINGER_MS = 1500;
 export function assertNoTeacherRestore() {
   if (!restoreAccess.getStore() && fs.existsSync(path.join(process.cwd(), ".teacher-restore"))) throw new Error("系统正在恢复数据，请稍后重试");
 }
 export function withTeacherRestoreAccess<T>(operation: () => Promise<T>): Promise<T> {
   return restoreAccess.run(true, operation);
 }
+function releaseMarker() {
+  active.releaseTimer = undefined;
+  if (active.count !== 0 || !active.marker) return;
+  try { fs.unlinkSync(active.marker); } catch (error) { console.error("无法清理数据访问锁", error); }
+  active.marker = undefined;
+}
 function begin(): boolean {
   if (restoreAccess.getStore()) return false;
   assertNoTeacherRestore();
-  if (active.count === 0) {
+  if (active.releaseTimer) { clearTimeout(active.releaseTimer); active.releaseTimer = undefined; }
+  const created = !active.marker;
+  if (created) {
     const dir = activityDir();
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
     const stat = fs.lstatSync(dir);
@@ -30,14 +46,17 @@ function begin(): boolean {
     fs.writeFileSync(active.marker, "", { mode: 0o600, flag: "wx" });
   }
   active.count++;
-  try { assertNoTeacherRestore(); } catch (error) { end(); throw error; }
+  // 新建标记时需二次检查：防止「首次检查后、标记写入前」恰好开始恢复
+  if (created) {
+    try { assertNoTeacherRestore(); } catch (error) { end(); throw error; }
+  }
   return true;
 }
 function end() {
   active.count--;
-  if (active.count === 0 && active.marker) {
-    try { fs.unlinkSync(active.marker); } catch (error) { console.error("无法清理数据访问锁", error); }
-    active.marker = undefined;
+  if (active.count === 0 && active.marker && !active.releaseTimer) {
+    active.releaseTimer = setTimeout(releaseMarker, MARKER_LINGER_MS);
+    active.releaseTimer.unref?.();
   }
 }
 export async function withTrackedDataAccess<T>(operation: () => Promise<T>): Promise<T> {

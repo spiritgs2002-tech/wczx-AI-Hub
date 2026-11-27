@@ -25,6 +25,12 @@ const nextConfig = {
     ];
   },
   experimental: {
+    // MUST LOAD TDESIGN BY NAMED EXPORT: tdesign-icons-react 有 7000+ 个文件，从包入口整包引入时
+    // dev 编译与冷启动要编译全部图标；按需改写为单文件引入后只编译用到的组件/图标。
+    // 📐 CONTRACT: 业务代码继续写 `import { XxxIcon } from "tdesign-icons-react"`，由这里自动改写。
+    // 🔗 RELATED: transpilePackages（同样两个包）。
+    // ⛔ DO NOT REMOVE: 去掉后 dev 每个页面首次打开会明显变慢（2026-11-27 性能排查）。
+    optimizePackageImports: ["tdesign-react", "tdesign-icons-react"],
     serverActions: {
       bodySizeLimit: "10mb",
     },
