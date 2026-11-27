@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { DEFAULT_TTS_VOICE, isValidTtsVoice } from "@/lib/tts-voices";
 import { cacheKey, hasCache, normalizeText, registerText } from "@/lib/tts-store";
+import { verifyToken } from "@/lib/auth";
 
 /**
  * 朗读音频**登记**接口。
@@ -19,6 +20,13 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
+  // MUST REQUIRE LOGIN: 登记接口会驱动服务端去连微软语音端点，未登录可被局域网任意设备滥用（2026-11-27 审核发现）。
+  // 📐 CONTRACT：仅校验登录态（师生均可）；/api/tts/audio/<id> 不鉴权（<audio> 无法带头，id 只能由本接口登记产生）。
+  // 🔗 RELATED：src/lib/speech.ts registerTts、src/app/student/chat/ExplorationPanel.tsx（均带 Bearer）。⛔ DO NOT REMOVE。
+  const token = req.headers.get("authorization")?.replace("Bearer ", "");
+  if (!token || !(await verifyToken(token))) {
+    return NextResponse.json({ ok: false, error: "未登录" }, { status: 401 });
+  }
   let body: { text?: unknown; voice?: unknown } | null = null;
   try {
     body = await req.json();

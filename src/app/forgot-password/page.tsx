@@ -12,6 +12,22 @@ export default function ForgotPasswordPage() {
   const [step, setStep] = useState<"input" | "verify" | "success">("input");
   const [hasQuestion, setHasQuestion] = useState(false);
   const [hasKey, setHasKey] = useState(false);
+  // MUST ASK FOR NEW PASSWORD: 找回密码由用户自设新密码，不再统一重置为 123456（2026-11-27 审核发现）。
+  // 🔗 RELATED：src/app/api/auth/recover-password、recover-key 要求 newPassword ≥ 6 位。⛔ DO NOT REVERT。
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+
+  const checkNewPassword = (): boolean => {
+    if (newPassword.length < 6) {
+      MessagePlugin.error("新密码至少 6 位");
+      return false;
+    }
+    if (newPassword !== confirmPassword) {
+      MessagePlugin.error("两次输入的新密码不一致");
+      return false;
+    }
+    return true;
+  };
 
   // 验证手机号
   const handleCheckPhone = async (p: string) => {
@@ -38,6 +54,7 @@ export default function ForgotPasswordPage() {
   // 通过问题答案恢复
   const handleQuestionSubmit = async (context: { fields?: Record<string, string> }) => {
     const values = context.fields || {};
+    if (!checkNewPassword()) return;
     setLoading(true);
     try {
       const res = await fetch("/api/auth/recover-password", {
@@ -46,12 +63,12 @@ export default function ForgotPasswordPage() {
         body: JSON.stringify({
           phone,
           recoveryAnswer: values.recoveryAnswer,
-          newPassword: "123456",
+          newPassword,
         }),
       });
       const data = await res.json();
       if (res.ok) {
-        MessagePlugin.success("密码已重置为: 123456");
+        MessagePlugin.success("密码已重置，请用新密码登录");
         setStep("success");
       } else {
         MessagePlugin.error(data.error || "恢复失败");
@@ -65,6 +82,7 @@ export default function ForgotPasswordPage() {
 
   // 通过密钥文件恢复
   const handleKeySubmit = async (key: string) => {
+    if (!checkNewPassword()) return;
     setLoading(true);
     try {
       const res = await fetch("/api/auth/recover-key", {
@@ -73,12 +91,12 @@ export default function ForgotPasswordPage() {
         body: JSON.stringify({
           phone,
           recoveryKey: key,
-          newPassword: "123456",
+          newPassword,
         }),
       });
       const data = await res.json();
       if (res.ok) {
-        MessagePlugin.success("密码已恢复为: 123456");
+        MessagePlugin.success("密码已重置，请用新密码登录");
         setStep("success");
       } else {
         MessagePlugin.error(data.error || "密钥无效");
@@ -92,6 +110,8 @@ export default function ForgotPasswordPage() {
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    // 清空 input，校验失败后重选同一文件仍能触发 onChange
+    e.target.value = "";
     if (!file) return;
     const reader = new FileReader();
     reader.onload = (evt) => {
@@ -148,6 +168,11 @@ export default function ForgotPasswordPage() {
 
             {(hasQuestion || hasKey) && (
               <>
+                <div className="mb-4 space-y-2">
+                  <p className="text-sm text-gray-600">设置新密码（至少 6 位）:</p>
+                  <Input type="password" placeholder="新密码" size="large" value={newPassword} onChange={(v) => setNewPassword(String(v))} />
+                  <Input type="password" placeholder="再次输入新密码" size="large" value={confirmPassword} onChange={(v) => setConfirmPassword(String(v))} />
+                </div>
                 <div className="mb-4">
                   <p className="text-sm text-gray-600 mb-2">选择恢复方式:</p>
                   <Radio.Group value={recoverType} onChange={(v) => setRecoverType(v as any)}>
@@ -186,7 +211,7 @@ export default function ForgotPasswordPage() {
                       </div>
                     </div>
                     <p className="text-xs text-gray-400 text-center">
-                      密钥文件恢复后，密码将被重置为: 123456
+                      请先填写上方新密码，再选择密钥文件
                     </p>
                   </div>
                 )}
@@ -199,7 +224,7 @@ export default function ForgotPasswordPage() {
           <div className="text-center py-8">
             <div className="text-green-500 text-5xl mb-4">✓</div>
             <p className="text-lg font-medium text-[#1A1A1A] mb-2">密码已恢复</p>
-            <p className="text-gray-500 mb-6">您的新密码是: <span className="font-mono font-bold">123456</span></p>
+            <p className="text-gray-500 mb-6">请使用刚才设置的新密码登录</p>
             <Button theme="primary" onClick={() => router.push("/login")}>
               返回登录
             </Button>

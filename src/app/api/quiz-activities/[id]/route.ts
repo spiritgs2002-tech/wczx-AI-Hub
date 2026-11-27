@@ -43,6 +43,40 @@ export async function GET(
       prisma.quizAttempt.count({ where: { quizActivityId: id } }),
     ]);
 
+    if (role !== "TEACHER") {
+      // MUST HIDE ANSWERS FROM STUDENTS BEFORE SUBMIT: 学生端 QuizPanel 直接调用本接口取题目。
+      // 为什么：原先学生拿到的 questions 带 answer/explanation，开发者工具即可看到标准答案（2026-11-27 审核发现）；
+      //   且未校验作业是否布置给本班、是否已发布。
+      // 📐 CONTRACT：学生仅能读取「已布置给本班且课堂启用」的作业；作业 ACTIVE 或本人已有提交记录才可见；
+      //   完整提交（记录数 == 题目数，与 attempts 口径一致）后才下发 answer/explanation 供查看解析。
+      //   提示词字段与设计模板（教师资产）一律不下发给学生。
+      // 🔗 RELATED：src/app/student/chat/QuizPanel.tsx 提交成功后会重新拉取本接口以显示解析；
+      //   src/app/api/quiz-activities/[id]/attempts/route.ts 的「已提交」判定。
+      // ⛔ DO NOT REVERT：不要为了前端显示方便把 answer 加回学生的未提交响应。
+      const me = await prisma.user.findUnique({ where: { id: String(payload.userId) }, select: { classId: true } });
+      const taskId = subProject?.task?.id;
+      const assigned = me?.classId && taskId
+        ? await prisma.taskAssignment.findFirst({ where: { taskId, classId: me.classId }, select: { id: true } })
+        : null;
+      const taskEnabled = taskId
+        ? (await prisma.learningTask.findUnique({ where: { id: taskId }, select: { status: true } }))?.status === "ENABLED"
+        : false;
+      if (!assigned || !taskEnabled) return new Response("作业不存在", { status: 404 });
+      const myAttempt = await prisma.quizAttempt.findFirst({
+        where: { quizActivityId: id, userId: String(payload.userId) },
+        select: { submittedAt: true, _count: { select: { QuestionAttempt: true } } },
+        orderBy: { startedAt: "desc" },
+      });
+      if (quiz.status !== "ACTIVE" && !myAttempt) return new Response("作业不存在或未发布", { status: 404 });
+      const fullySubmitted = !!myAttempt?.submittedAt && myAttempt._count.QuestionAttempt === questions.length && questions.length > 0;
+      const safeQuestions = fullySubmitted
+        ? questions
+        : questions.map((q) => ({ ...q, answer: undefined, explanation: undefined }));
+      const safeQuiz: Record<string, unknown> = { ...quiz };
+      for (const f of PROMPT_FIELDS.QuizActivity) delete safeQuiz[f];
+      return NextResponse.json({ ...safeQuiz, SubProject: subProject, quizDesignTemplate: null, questions: safeQuestions, _count: { attempts: count } });
+    }
+
     return NextResponse.json({ ...quiz, SubProject: subProject, quizDesignTemplate, questions, _count: { attempts: count } });
   } catch (error) {
     console.error("查询作业详情失败:", error);

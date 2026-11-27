@@ -60,7 +60,9 @@ function MermaidBlock({ code }: { code: string }) {
         mermaid.initialize({
           startOnLoad: false,
           theme: "neutral",
-          securityLevel: "loose",
+          // MUST STAY STRICT: "loose" 会放行图中节点的 HTML 与 click 回调，AI 输出的 mermaid 可借此注入脚本（2026-11-27 审核发现）。
+          // ⛔ DO NOT REVERT 成 "loose"；strict 下 mermaid 会对标签做转义，普通流程图/时序图渲染不受影响。
+          securityLevel: "strict",
           fontFamily: "inherit",
         });
         // ⚠️ GOTCHA（mermaid 12.0.0 实测，2026-09）：
@@ -257,6 +259,36 @@ const QC_CHART_UNSAFE_RE = /<script|<iframe|<object|<embed|\son\w+\s*=|javascrip
 
 type ChartSegment = { type: "md" | "chart"; value: string };
 
+/**
+ * MUST SANITIZE WITH ALLOWLIST: qc-chart HTML 只能经 DOMPurify（html+svg 白名单）清洗后再插入页面。
+ * 为什么：上面的 QC_CHART_UNSAFE_RE 是黑名单，`<svg/onload=...>`（事件属性紧贴斜杠）或实体编码的脚本协议都能绕过；
+ *   AI 回复可被学生诱导输出自造的 qc-chart，在教师「对话记录」等页面执行脚本、窃取 localStorage 里的教师令牌（2026-11-27 审核发现）。
+ * 📐 CONTRACT：只在浏览器端（useEffect）清洗后渲染 —— DOMPurify 在服务端没有 DOM，不能在 SSR 阶段输出原始 HTML。
+ *   黑名单保留作为第一道过滤（命中则按源码显示），DOMPurify 是真正的安全边界。
+ * 🔗 RELATED：src/lib/report-charts.ts wrap()（生成端，只产出 div/svg/table 与 style 属性）。
+ * ⛔ DO NOT REVERT：不要改回直接 dangerouslySetInnerHTML 原始片段。
+ */
+function QcChartHtml({ html }: { html: string }) {
+  const [clean, setClean] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    import("dompurify").then(({ default: DOMPurify }) => {
+      if (cancelled) return;
+      setClean(
+        DOMPurify.sanitize(html, {
+          USE_PROFILES: { html: true, svg: true },
+          FORBID_TAGS: ["style", "foreignObject", "form", "input", "button"],
+        })
+      );
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [html]);
+  if (clean === null) return <div className="py-6 text-center text-xs text-gray-400">图表加载中...</div>;
+  return <div dangerouslySetInnerHTML={{ __html: clean }} />;
+}
+
 /** 把文本按 qc-chart HTML 片段切分为 [markdown | chart html] 序列（无片段时返回空数组表示整段走原逻辑） */
 function splitChartSegments(text: string): ChartSegment[] {
   if (!text.includes(QC_CHART_START)) return [];
@@ -359,8 +391,8 @@ const Markdown = memo(function Markdown({
     <>
       {segments.map((seg, i) => {
         if (seg.type === "chart" && !QC_CHART_UNSAFE_RE.test(seg.value)) {
-          // 片段是后端确定性生成的 SVG/表格容器，转义已在上游完成（见 splitChartSegments 契约注释）
-          return <div key={i} dangerouslySetInnerHTML={{ __html: seg.value }} />;
+          // 片段是后端确定性生成的 SVG/表格容器；渲染前再经 DOMPurify 白名单清洗（见 QcChartHtml）
+          return <QcChartHtml key={i} html={seg.value} />;
         }
         const md = seg.type === "chart" ? "" : seg.value;
         // 空白段跳过，避免渲染出多余的空 <p>

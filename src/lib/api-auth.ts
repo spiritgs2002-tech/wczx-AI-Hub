@@ -38,3 +38,17 @@ export async function ownsPresetConversation(presetConversationId: string, teach
   });
   return !!pc;
 }
+
+/**
+ * QuickForm 任务归属：qf_task 由互动探究（ExplorationActivity.qfTaskId）绑定，经探究 → 项目 → 课堂归属到教师。
+ * 为什么：/api/qf/records、/api/qf/count 原先只校验「已登录」，学生令牌即可读取全班提交数据（2026-11-27 审核发现）。
+ * 📐 CONTRACT：不存在或不属于本人一律 false（调用方回 404）。
+ * 🔗 RELATED：src/app/api/qf/records/[taskId]/route.ts、src/app/api/qf/count/[taskId]/route.ts。
+ */
+export async function ownsQfTask(qfTaskId: string, teacherId: string): Promise<boolean> {
+  const ex = await prisma.explorationActivity.findFirst({
+    where: { qfTaskId, SubProject: { task: { teacherId } } },
+    select: { id: true },
+  });
+  return !!ex;
+}

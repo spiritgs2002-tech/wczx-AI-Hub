@@ -118,7 +118,7 @@ export async function POST(req: NextRequest) {
     // 当前对话学生（用于 {studentName} 变量替换，让 AI 能叫出学生姓名）
     const currentUserPromise = prisma.user.findUnique({
       where: { id: userId },
-      select: { name: true },
+      select: { name: true, classId: true },
     });
 
     const materialsPromise = prisma.material.findMany({
@@ -145,6 +145,41 @@ export async function POST(req: NextRequest) {
 
     if (!classData) {
       return new Response("班级不存在", { status: 404 });
+    }
+
+    // MUST VALIDATE CLIENT IDS: classId / conversationId / presetConversationId 都来自前端，必须核对归属后才能使用。
+    // 为什么：原先直接信任这三个参数 —— 学生可往别人的对话里写消息、读取他班学习资料、使用已停用的对话活动（2026-11-27 审核发现）。
+    // 📐 CONTRACT：
+    //   - 学生：classId 必须是本人当前班级；教师：classId 必须是本人的班级（预览/调试场景）。
+    //   - conversationId 必须属于本人且属于该班级。
+    //   - 学生使用 presetConversationId 时：活动需启用、所属课堂启用且已布置给该班级。
+    // 🔗 RELATED：src/app/student/chat/page.tsx 调用处；src/app/api/student/explorations/[id]/route.ts 同类布置校验。
+    // ⛔ DO NOT REVERT：校验必须在任何写库（创建对话 / 保存消息）之前执行。
+    const isTeacher = payload.role === "TEACHER";
+    if (isTeacher ? classData.teacherId !== userId : currentUser?.classId !== classId) {
+      return new Response("无权访问该班级", { status: 403 });
+    }
+    if (conversationId) {
+      const ownConv = await prisma.conversation.findFirst({
+        where: { id: conversationId, userId, classId },
+        select: { id: true },
+      });
+      if (!ownConv) return new Response("对话不存在", { status: 404 });
+    }
+    if (presetConversationId) {
+      if (!presetConv) return new Response("对话活动不存在", { status: 404 });
+      const pcTask = presetConv.SubProject.task;
+      if (isTeacher) {
+        if (pcTask.teacherId !== userId) return new Response("对话活动不存在", { status: 404 });
+      } else {
+        const assigned = await prisma.taskAssignment.findFirst({
+          where: { taskId: pcTask.id, classId },
+          select: { id: true },
+        });
+        if (!assigned || pcTask.status !== "ENABLED" || presetConv.enabled === false) {
+          return new Response("对话活动未开放", { status: 403 });
+        }
+      }
     }
 
 

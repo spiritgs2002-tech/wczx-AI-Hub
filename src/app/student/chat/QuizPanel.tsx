@@ -182,6 +182,13 @@ export default function QuizPanel({ quizId, initialQuizData, initialQuestions = 
           };
         });
         setAnswerResults(resultMap);
+        // MUST REFETCH AFTER SUBMIT: 接口在提交前不下发 answer/explanation（防偷看答案），
+        //   提交成功后重新拉取一次题目才能显示正确答案与解析。
+        // 🔗 RELATED：src/app/api/quiz-activities/[id]/route.ts 学生分支。⛔ DO NOT REMOVE。
+        fetch(`/api/quiz-activities/${quizId}`, { headers: { Authorization: `Bearer ${token}` } })
+          .then((r) => (r.ok ? r.json() : null))
+          .then((qData) => { if (qData?.questions) setQuestions(qData.questions); })
+          .catch(() => {});
         if (data.ungradedCount > 0) {
           MessagePlugin.warning(`已提交，但有 ${data.ungradedCount} 道题未能自动批改，请联系老师`);
         } else {

@@ -573,9 +573,11 @@ function releaseAudio(): void {
 
 /** 登记朗读文本，拿到可交给 <audio> 播放的 id */
 async function registerTts(text: string, voice: string): Promise<string> {
+  // /api/tts 需要登录（2026-11-27 起）；无令牌时接口返回 401，调用方自动回退浏览器朗读。
+  const token = typeof localStorage !== "undefined" ? localStorage.getItem("token") || "" : "";
   const res = await fetch("/api/tts", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
     body: JSON.stringify({ text, voice }),
   });
   if (!res.ok) throw new Error("登记朗读文本失败");

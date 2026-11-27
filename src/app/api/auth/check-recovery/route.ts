@@ -10,8 +10,9 @@ export async function POST(req: NextRequest) {
     }
 
     const user = await prisma.user.findFirst({ where: { phone } });
+    // ⛔ DO NOT REVERT：不存在的手机号与「未设置恢复方式」返回相同结果，避免借此探测哪些手机号已注册（2026-11-27 审核发现）。
     if (!user) {
-      return NextResponse.json({ error: "用户不存在" }, { status: 404 });
+      return NextResponse.json({ hasQuestion: false, hasKey: false });
     }
 
     return NextResponse.json({
