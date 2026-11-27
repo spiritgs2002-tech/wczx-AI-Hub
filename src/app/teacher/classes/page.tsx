@@ -141,7 +141,8 @@ export default function TeacherClassesPage() {
   const handleShare = async (cls: ClassItem) => {
     setShareClass(cls);
     setShareVisible(true);
-    if (lanFetched) return;
+    // 上次没拿到 HTTPS 端口（服务刚启动、入口尚未就绪）时重新获取，避免一直显示 http 地址
+    if (lanFetched && httpsPort) return;
     try {
       const token = localStorage.getItem("token");
       const res = await fetch("/api/system/lan-address", {

@@ -519,7 +519,7 @@ export default function TaskInsightsPage() {
           text += decoder.decode(value, { stream: true });
           if (received === 0) clearTimeout(hintTimer);
           received = text.length;
-          updateGenOverlay(`正在生成 ${received.toLocaleString()} 字...`);
+          updateGenOverlay(`正在生成 ${received.toLocaleString()} 字...`, text);
         }
         // ⛔ DO NOT REVERT to local version-list rebuild ([previousContent, newInsight], version = new-1).
         // Why removed (2026-10-11): (1) in-place rebuild silently drops all historical versions
@@ -589,7 +589,7 @@ export default function TaskInsightsPage() {
           text += decoder.decode(value, { stream: true });
           if (received === 0) clearTimeout(hintTimer);
           received = text.length;
-          updateGenOverlay(`正在生成 ${received.toLocaleString()} 字...`);
+          updateGenOverlay(`正在生成 ${received.toLocaleString()} 字...`, text);
         }
         // 生成 → 全量刷新（与 generateClassInsight 同一契约，禁止本地重建版本列表）
         if (selectedClassIdRef.current !== originClassId) {
@@ -653,7 +653,7 @@ export default function TaskInsightsPage() {
           text += decoder.decode(value, { stream: true });
           if (received === 0) clearTimeout(hintTimer);
           received = text.length;
-          updateGenOverlay(`正在生成 ${received.toLocaleString()} 字...`);
+          updateGenOverlay(`正在生成 ${received.toLocaleString()} 字...`, text);
         }
         if (!text.trim()) throw new Error("AI 返回了空内容，请重试");
         fullText = text;

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { verifyToken } from "@/lib/auth";
 import { createDashScopeClient } from "@/lib/ai";
-import { generateText } from "ai";
+import { generateText, streamText } from "ai";
 import { buildQfAnswersText } from "@/lib/exploration/qf-report";
 import { parseCollectProfile, detectCollectProfile } from "@/lib/exploration/collect-profile";
 import { removeSubmitFunctionality } from "@/lib/prompts/exploration-submit";
@@ -118,6 +118,44 @@ ${qfAnswersText || "暂无作答"}
     }
 
     const { chatModel } = await createDashScopeClient();
+
+    // MUST STREAM WHEN ASKED: ?stream=1 时边生成边把文字发给前端（教学建议卡片实时显示），
+    //   全文生成完再落库；客户端中途断开则不落库，不写入不完整内容。
+    // 📐 CONTRACT: 不带 stream=1 的旧调用仍返回 JSON { advice }，行为不变。
+    // 🔗 RELATED: src/app/teacher/tasks/page.tsx handleGenerateTeachingAdvice（流式读取）。
+    if (new URL(req.url).searchParams.get("stream") === "1") {
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream<Uint8Array>({
+        async start(controller) {
+          try {
+            const { textStream } = streamText({
+              model: chatModel,
+              system: "你是一个中学教师教学助手，擅长根据学情数据给出教学建议。",
+              prompt,
+              temperature: 0.7,
+            });
+            let full = "";
+            for await (const delta of textStream) {
+              full += delta;
+              controller.enqueue(encoder.encode(delta));
+            }
+            if (!full.trim()) throw new Error("AI 返回了空内容，请重试");
+            await prisma.explorationActivity.update({
+              where: { id },
+              data: { teachingAdvice: full },
+            });
+            controller.close();
+          } catch (e) {
+            console.error("生成教学建议失败（流式）:", e);
+            try { controller.error(e); } catch { /* 流已被客户端取消 */ }
+          }
+        },
+      });
+      return new Response(stream, {
+        headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-cache" },
+      });
+    }
+
     const { text: advice } = await generateText({
       model: chatModel,
       system: "你是一个中学教师教学助手，擅长根据学情数据给出教学建议。",

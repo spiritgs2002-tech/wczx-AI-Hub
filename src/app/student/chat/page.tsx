@@ -1,13 +1,11 @@
 "use client";
 
 import { useState, useRef, useEffect, type ReactNode } from "react";
-import { Button, Input, MessagePlugin, Tag } from "tdesign-react";
+import { Button, DialogPlugin, Input, MessagePlugin, Tag } from "tdesign-react";
 import {
   SendIcon,
-  ImageIcon,
   AddIcon,
   ChatIcon,
-  MicrophoneIcon,
   BookOpenIcon,
   BrowseIcon,
   AssignmentIcon,
@@ -18,13 +16,14 @@ import {
 import Markdown from "@/components/Markdown";
 import SpeechControls from "@/components/speech/SpeechControls";
 import SpeakButton from "@/components/speech/SpeakButton";
-import { speakSmart, stopSpeaking } from "@/lib/speech";
+import { getLastSpeakError, speakSmart, stopSpeaking } from "@/lib/speech";
 import { getSpeechSettings } from "@/lib/speech-settings";
 import StudentLayout from "@/components/layout/StudentLayout";
 import QuizPanel from "./QuizPanel";
 import ExplorationPanel from "./ExplorationPanel";
 import ProjectSubmitPanel from "./ProjectSubmitPanel";
 import { pcmToWavDataUrl, mixToMono } from "@/lib/audio/wav";
+import { getHttpsSwitchUrl } from "@/lib/https-switch";
 
 // DO NOT REVERT: 老版 iOS webkitAudioContext 的 decodeAudioData 只支持回调；两条音频入口共用此包装。
 // 📐 CONTRACT: 同时接住新版返回 Promise 的拒绝，失败也必须在 finally 关闭 context，不能留下音频设备占用。
@@ -380,7 +379,6 @@ export default function StudentChatPage() {
   const [pendingImages, setPendingImages] = useState<MessageImage[]>([]);
   const [pendingAudio, setPendingAudio] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const cameraInputRef = useRef<HTMLInputElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   // 话筒页内录音（2026-10-15 需求：点击直接调用麦克风，再点停止，录完作为语音附件）
   const [isRecording, setIsRecording] = useState(false);
@@ -687,11 +685,27 @@ export default function StudentChatPage() {
     return null;
   };
 
+  // ⛔ DO NOT REVERT: Android 文件选择器（含系统"录音机"来源）返回的 File.type 常为空字符串，
+  //   仅靠 type.startsWith() 会把有效音频/图片误判为"不支持的文件"，平板录音导不进来。
+  //   📐 CONTRACT：MIME 优先、扩展名兜底；两者都判不出才拒绝。扩展名只取常见白名单，不信任任意后缀。
+  //   🔗 RELATED：handleImageSelect / handleAudioSelect / handleAttachmentSelect 三处分流共用。
+  const IMAGE_EXT_RE = /\.(jpe?g|png|gif|webp|bmp|heic|heif)$/i;
+  const AUDIO_EXT_RE = /\.(m4a|mp3|wav|aac|ogg|oga|opus|webm|3gp|3g2|amr|flac|mpeg|mpga)$/i;
+  const guessFileKind = (file: File): "image" | "audio" | null => {
+    const type = (file.type || "").toLowerCase();
+    if (type.startsWith("image/")) return "image";
+    if (type.startsWith("audio/")) return "audio";
+    const name = file.name || "";
+    if (IMAGE_EXT_RE.test(name)) return "image";
+    if (AUDIO_EXT_RE.test(name)) return "audio";
+    return null;
+  };
+
   // 图片处理
   const handleImageSelect = (files: FileList | File[] | null) => {
     if (!files) return;
     Array.from(files).forEach((file) => {
-      if (!file.type.startsWith("image/")) {
+      if (guessFileKind(file) !== "image") {
         MessagePlugin.error("请选择图片文件");
         return;
       }
@@ -710,31 +724,60 @@ export default function StudentChatPage() {
 
   // ⛔ DO NOT REVERT: 音频统一转码为 WAV。AI SDK（@ai-sdk/openai）的 file part 音频
   //   只接受 audio/wav、audio/mp3、audio/mpeg，m4a/ogg/webm 会抛 UnsupportedFunctionalityError；
-  //   仅能解码当前浏览器支持的格式；上传前统一转 16kHz 单声道 WAV，失败交给附件入口提示。
+  //   上传前统一转 16kHz 单声道 WAV。浏览器解码失败时走服务端 ffmpeg 兜底（平板 Firefox 关键）。
   //   后端 /api/chat 收到 data:audio/wav;base64, 后转 file part 直通（见 route.ts mediaTypeToExt）。
-  // 🔗 RELATED: decodeAudio（旧 iOS 回调兼容）、handleAudioSelect 的过期结果保护、src/lib/audio/wav.ts。
+  // 🔗 RELATED: decodeAudio（旧 iOS 回调兼容）、/api/audio/transcode、handleAudioSelect 的过期结果保护。
   const transcodeAudioToWav = async (file: File): Promise<string> => {
-    const arrayBuffer = await file.arrayBuffer();
     const AudioCtx =
       window.AudioContext ||
       (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    if (!AudioCtx) throw new Error("当前浏览器不支持音频解码");
-    const ctx = new AudioCtx();
-    try {
-      const audioBuffer = await decodeAudio(ctx, arrayBuffer);
-      const channels = Array.from({ length: audioBuffer.numberOfChannels }, (_, i) => audioBuffer.getChannelData(i));
-      // ⛔ 重采样必须走 @/lib/audio/wav（带抗混叠），不要改回 OfflineAudioContext —— 原因见该文件头注释
-      return await pcmToWavDataUrl(mixToMono(channels), audioBuffer.sampleRate);
-    } finally {
-      closeAudioContext(ctx);
+    if (AudioCtx) {
+      const ctx = new AudioCtx();
+      try {
+        const arrayBuffer = await file.arrayBuffer();
+        const audioBuffer = await decodeAudio(ctx, arrayBuffer);
+        const channels = Array.from({ length: audioBuffer.numberOfChannels }, (_, i) => audioBuffer.getChannelData(i));
+        // ⛔ 重采样必须走 @/lib/audio/wav（带抗混叠），不要改回 OfflineAudioContext —— 原因见该文件头注释
+        return await pcmToWavDataUrl(mixToMono(channels), audioBuffer.sampleRate);
+      } catch {
+        // 浏览器解不了（平板 Firefox 常见）：落到这里走服务端 ffmpeg，不要让附件入口报错中断
+      } finally {
+        closeAudioContext(ctx);
+      }
     }
+
+    // 服务端兜底：把原始文件 base64 交给 ffmpeg，统一转 16kHz 单声道 WAV。
+    // MUST 用 readAsDataURL 而不是 file.arrayBuffer()：后者在 Firefox 的 content:// 文件上偶发读取为空。
+    const base64 = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = String(reader.result || "");
+        resolve(result.slice(result.indexOf(",") + 1));
+      };
+      reader.onerror = () => reject(reader.error || new Error("读取音频失败"));
+      reader.readAsDataURL(file);
+    });
+    const token = localStorage.getItem("token");
+    const res = await fetch("/api/audio/transcode", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ audio: base64 }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data?.dataUrl) {
+      throw new Error(data?.error || "服务端转码失败");
+    }
+    return data.dataUrl as string;
   };
 
   // 音频附件处理：选择录音/音频文件，统一转码为 16kHz 单声道 WAV 后暂存
   const handleAudioSelect = async (files: FileList | File[] | null) => {
     if (!files || files.length === 0) return;
     const file = files[0];
-    if (!file.type.startsWith("audio/")) {
+    if (guessFileKind(file) !== "audio") {
       MessagePlugin.error("请选择音频文件");
       return;
     }
@@ -748,8 +791,11 @@ export default function StudentChatPage() {
     try {
       const url = await transcodeAudioToWav(file);
       if (selection === audioSelectionRef.current) setPendingAudio(url);
-    } catch {
-      if (selection === audioSelectionRef.current) MessagePlugin.error("音频解析失败，请换用常见格式（m4a/mp3/wav）");
+    } catch (err) {
+      // 把真实原因带出来（如"服务端转码失败"），便于现场判断是格式问题还是服务问题
+      if (selection === audioSelectionRef.current) {
+        MessagePlugin.error((err as Error)?.message || "音频解析失败，请换用常见格式（m4a/mp3/wav）");
+      }
     }
   };
 
@@ -759,8 +805,9 @@ export default function StudentChatPage() {
     const images: File[] = [];
     const audios: File[] = [];
     Array.from(files).forEach((file) => {
-      if (file.type.startsWith("image/")) images.push(file);
-      else if (file.type.startsWith("audio/")) audios.push(file);
+      const kind = guessFileKind(file);
+      if (kind === "image") images.push(file);
+      else if (kind === "audio") audios.push(file);
       else MessagePlugin.error(`不支持的文件：${file.name}（仅支持图片和音频）`);
     });
     if (images.length > 0) handleImageSelect(images);
@@ -801,10 +848,39 @@ export default function StudentChatPage() {
     if (!activePresetId) return;
     // MUST KEEP HTTPS DIAGNOSTICS: HTTP 局域网入口没有 mediaDevices，与系统麦克风授权无关。
     // 🔗 RELATED: src/lib/https-entry.ts 的班级二维码；⛔ DO NOT REVERT 成单一“检查权限”提示。
+    // 2026-11-27：学生手上常没有二维码，入口已开时直接给「切换到 HTTPS」按钮（跳登录页，带上姓名）。
     if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+      const origin = window.location.origin;
+      let name = "";
+      try {
+        name = JSON.parse(localStorage.getItem("user") || "{}")?.name || "";
+      } catch {
+        // user 缓存损坏时不带姓名
+      }
+      const switchUrl = window.isSecureContext
+        ? null
+        : await getHttpsSwitchUrl(`/student${name ? `?name=${encodeURIComponent(name)}` : ""}`);
+      if (switchUrl) {
+        const dialog = DialogPlugin.confirm({
+          header: "语音录入需要切换到 HTTPS 地址",
+          body:
+            `当前通过 ${origin} 访问，浏览器禁止非 HTTPS 网页使用麦克风（与权限设置无关）。` +
+            `点「切换」后重新登录一次即可使用语音；首次打开若提示连接不安全（Firefox 显示「潜在安全风险」），点「高级」→「接受风险并继续」。`,
+          confirmBtn: "切换",
+          cancelBtn: "取消",
+          onConfirm: () => {
+            dialog.destroy();
+            window.location.assign(switchUrl);
+          },
+          onClose: () => dialog.destroy(),
+        });
+        return;
+      }
       MessagePlugin.error(
-        `当前通过 ${window.location.origin} 访问，浏览器禁止非 HTTPS 网页使用麦克风（与权限设置无关）。` +
-          `请扫描老师「班级管理 → 分享」里的二维码重新进入（https 地址）`,
+        window.isSecureContext
+          ? "当前浏览器不支持麦克风录音，请换用 Edge 或 Chrome 浏览器"
+          : `当前通过 ${origin} 访问，浏览器禁止非 HTTPS 网页使用麦克风（与权限设置无关）。` +
+              `请扫描老师「班级管理 → 分享」里的二维码重新进入（https 地址）`,
         15000,
       );
       return;
@@ -1205,7 +1281,13 @@ export default function StudentChatPage() {
         speakSmart(assistantContent, { owner: `msg-${assistantIndexRef.current}` }).then(
           (result) => {
             if (result === "no-voice") {
-              MessagePlugin.warning("自动朗读失败：当前设备没有可用的语音，请检查媒体音量或改用电脑");
+              const reason = getLastSpeakError();
+              MessagePlugin.warning(
+                reason
+                  ? `自动朗读失败：${reason}（本设备也没有可用的内置语音）`
+                  : "自动朗读失败：当前设备没有可用的语音，请检查媒体音量或改用电脑",
+                8000,
+              );
             }
           },
           () => {}
@@ -1262,7 +1344,7 @@ export default function StudentChatPage() {
 
   return (
     <StudentLayout>
-      <div className="flex h-[calc(100vh-88px)] bg-white rounded-xl shadow-sm overflow-hidden">
+      <div className="student-chat-shell flex bg-white rounded-xl shadow-sm overflow-hidden">
         {/* 左侧：任务树 */}
         <div className={`${sidebarCollapsed ? 'w-10' : 'w-72'} border-r border-gray-200 flex flex-col bg-[#F7F8FA] transition-all duration-200`}>
           <div className="p-3 border-b border-gray-200 flex items-center justify-between">
@@ -1469,7 +1551,7 @@ export default function StudentChatPage() {
 
         {activeType !== "quiz" && activeType !== "exploration" && activePresetId && currentInfo && (
           <>
-            <div className="px-4 py-3 border-b border-gray-200 bg-[#FAFBFC]">
+            <div className="px-4 py-2 border-b border-gray-200 bg-[#FAFBFC]">
               <div className="flex items-center gap-2">
                 <ChatIcon className="text-[#0052D9]" size="18px" />
                 <div className="flex-1 min-w-0">
@@ -1485,7 +1567,7 @@ export default function StudentChatPage() {
 
             </div>
 
-            <div ref={scrollContainerRef} className="flex-1 overflow-y-auto p-4">
+            <div ref={scrollContainerRef} className="flex-1 overflow-y-auto p-3">
               <div ref={messagesInnerRef} className="space-y-4">
               {messages.length === 0 && currentInfo && (
                 <div className="text-center text-gray-400 mt-10">
@@ -1612,37 +1694,9 @@ export default function StudentChatPage() {
               </div>
             )}
 
-            <div className="border-t border-gray-200 p-4">
+            <div className="border-t border-gray-200 px-4 py-3">
               <div className="flex gap-2 items-center">
-                {/* 1 话筒：点击直接调用麦克风开始录音，再点停止，录完作为语音附件 */}
-                <Button
-                  theme={isRecording ? "danger" : "default"}
-                  variant={isRecording ? "base" : "outline"}
-                  size="large"
-                  icon={<MicrophoneIcon />}
-                  onClick={toggleRecording}
-                  title={isRecording ? "停止录音" : "语音输入（点击开始录音）"}
-                  disabled={!activePresetId}
-                />
-                {isRecording && (
-                  <span
-                    className="text-red-500 text-sm font-medium whitespace-nowrap"
-                    title={`最长录音 ${MAX_RECORD_SEC} 秒`}
-                  >
-                    ● {formatRecordSec(recordingSec)}
-                  </span>
-                )}
-                {/* 2 图片：直接调用相机拍照 */}
-                <Button
-                  theme="default"
-                  variant="outline"
-                  size="large"
-                  icon={<ImageIcon />}
-                  onClick={() => cameraInputRef.current?.click()}
-                  title="拍照"
-                  disabled={!activePresetId}
-                />
-                {/* 3 添加文件：图片 jpg/png/jpeg、音频 m4a/mp3/wav 等 */}
+                {/* 添加文件：图片 jpg/png/jpeg、音频 m4a/mp3/wav 等（图片与录音统一走此入口） */}
                 <Button
                   theme="default"
                   variant="outline"
@@ -1672,17 +1726,9 @@ export default function StudentChatPage() {
                 </Button>
               </div>
               <input
-                ref={cameraInputRef}
-                type="file"
-                accept="image/*"
-                capture="environment"
-                className="hidden"
-                onChange={(e) => { handleImageSelect(e.target.files); e.target.value = ""; }}
-              />
-              <input
                 ref={fileInputRef}
                 type="file"
-                accept="image/*,audio/*"
+                accept="image/*,audio/*,.m4a,.mp3,.wav,.aac,.ogg,.opus,.webm,.3gp,.amr,.flac,.heic"
                 multiple
                 className="hidden"
                 onChange={(e) => { handleAttachmentSelect(e.target.files); e.target.value = ""; }}
@@ -1696,7 +1742,7 @@ export default function StudentChatPage() {
             <div className="text-center text-gray-400">
               <p className="text-lg mb-2">👋 你好！</p>
               <p>请从左侧选择一个对话活动开始</p>
-              <p className="text-sm mt-2">支持拍照或上传图片提问</p>
+              <p className="text-sm mt-2">支持图片、音频提问（点 + 添加）</p>
             </div>
           </div>
         )}

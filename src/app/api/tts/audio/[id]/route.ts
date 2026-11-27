@@ -9,6 +9,7 @@ import {
   releaseSlot,
   writeCache,
 } from "@/lib/tts-store";
+import { verifyToken } from "@/lib/auth";
 
 /**
  * 朗读音频**播放**接口（流式）。
@@ -143,9 +144,18 @@ async function startUpstream(voice: string, text: string): Promise<Upstream> {
   }
 }
 
-export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   const id = String(params?.id || "");
   if (!isSafeKey(id)) return fail(404, "无效的音频标识");
+
+  // MUST REQUIRE LOGIN: 播放接口同样要求登录（2026-11-27 复核补充）。
+  // 为什么：id 是 sha1(音色+文本) 的确定性哈希而非随机数，知道原文即可算出 id；未鉴权时局域网任意设备都能拉取缓存音频、占用合成名额。
+  // 📐 CONTRACT：令牌取自 Authorization: Bearer，或 ?token=（<audio> 无法带请求头，同 /api/images/[id] 的做法）。
+  // 🔗 RELATED：src/lib/speech.ts 播放地址追加 ?token=；src/app/student/chat/ExplorationPanel.tsx fetch 带 Bearer。
+  // ⛔ DO NOT REMOVE。
+  const token =
+    req.nextUrl.searchParams.get("token") || req.headers.get("authorization")?.replace("Bearer ", "") || "";
+  if (!token || !(await verifyToken(token))) return fail(401, "未登录");
 
   // ① 磁盘缓存命中：直接整段返回（实测约 8ms，几乎零成本）
   const cached = await readCache(id);
@@ -154,7 +164,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       headers: {
         "Content-Type": "audio/mpeg",
         "Content-Length": String(cached.length),
-        "Cache-Control": "public, max-age=86400, immutable",
+        "Cache-Control": "private, max-age=86400, immutable",
       },
     });
   }
@@ -246,7 +256,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   return new NextResponse(body, {
     headers: {
       "Content-Type": "audio/mpeg",
-      "Cache-Control": "public, max-age=86400, immutable",
+      "Cache-Control": "private, max-age=86400, immutable",
       "X-Accel-Buffering": "no",
     },
   });

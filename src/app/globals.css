@@ -347,3 +347,12 @@ html[data-teacher-theme] .t-switch.t-is-checked {
     transform: scale(0.5);
   }
 }
+
+/* 学生聊天页：平板浏览器地址栏会占用 100vh 的高度，导致底部输入区需要拖拽。
+   优先使用动态视口单位；不支持 dvh 的旧浏览器回退到 vh（高度按新的 72px 顶栏+留白计算）。 */
+.student-chat-shell {
+  height: calc(100vh - 72px);
+  height: calc(100dvh - 72px);
+  /* 联想 TB-X605FC + Firefox 等旧版移动端浏览器可能不认 dvh；JS 写入真实可视高度后以此为最终口径 */
+  height: calc(var(--student-vh, 100dvh) - 72px);
+}

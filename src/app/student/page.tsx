@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button, Dialog, Form, Input, MessagePlugin } from "tdesign-react";
+import { getHttpsSwitchUrl } from "@/lib/https-switch";
 
 interface CandidateClass {
   classId: string;
@@ -17,13 +18,20 @@ export default function StudentLoginPage() {
   const [pendingClasses, setPendingClasses] = useState<CandidateClass[]>([]);
   const [classSelectVisible, setClassSelectVisible] = useState(false);
   const [form] = Form.useForm();
+  // 通过 http 局域网地址进入时，指向同一台教师电脑 https 入口的地址（录音必需）；已是 https 或入口未开时为 null
+  const [httpsUrl, setHttpsUrl] = useState<string | null>(null);
 
   // 扫班级分享二维码进入时 URL 带 ?code=邀请码，自动填好，学生只需输入姓名。
   // ⚠️ GOTCHA：本页是静态预渲染页，用 window.location 读参数，不要换成 useSearchParams（需额外 Suspense 包裹）。
   // 🔗 RELATED：二维码地址由 src/app/teacher/classes/page.tsx 的 getStudentEntryUrl 生成，参数名 code 两边必须一致。
   useEffect(() => {
-    const code = new URLSearchParams(window.location.search).get("code");
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get("code");
     if (code) form.setFieldsValue({ inviteCode: code.trim() });
+    // ?name= 由聊天页「切换到 HTTPS」按钮带过来，省得学生重新输入姓名
+    const name = params.get("name");
+    if (name) form.setFieldsValue({ name: name.trim() });
+    void getHttpsSwitchUrl(`/student${window.location.search}`).then(setHttpsUrl);
   }, [form]);
 
   const doLogin = async (payload: Record<string, string>) => {
@@ -86,6 +94,20 @@ export default function StudentLoginPage() {
         <p className="text-center text-gray-500 mb-8">
           WenChang SmartFusion
         </p>
+
+        {httpsUrl && (
+          <div className="mb-6 p-4 bg-orange-50 border border-orange-200 rounded-xl text-sm text-orange-700">
+            <p className="mb-3">
+              当前通过 http 地址访问，<strong>语音录入无法使用</strong>（浏览器只允许 HTTPS 网页使用麦克风）。
+            </p>
+            <Button theme="warning" block onClick={() => window.location.assign(httpsUrl)}>
+              切换到 HTTPS 地址（可使用语音）
+            </Button>
+            <p className="mt-2 text-xs text-orange-600">
+              首次打开若提示连接不安全（Chrome 显示「您的连接不是私密连接」，Firefox 显示「潜在安全风险」），点「高级」→「继续访问 / 接受风险并继续」即可。
+            </p>
+          </div>
+        )}
 
         <Form form={form} onSubmit={handleSubmit}>
           <Form.FormItem name="name">

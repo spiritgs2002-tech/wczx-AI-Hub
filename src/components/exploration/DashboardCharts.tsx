@@ -179,6 +179,106 @@ export function ChartHBar({
   );
 }
 
+/** 分组对比双系列：平均数 vs 中位数。
+ *  课堂难点是「平均数被极端叶拉偏、中位数更稳健」，因此同一树种并排两根柱，
+ *  让学生有据可比，而不是只给一个中位数。
+ *  ⛔ DO NOT REVERT: 不要退回单系列中位数——教案任务三「辨数」需要看到被拉偏的平均数。
+ *  🔗 RELATED: QuickFormAiDashboard 的分组 bar/hbar 分支、computeNumberStats。 */
+export type CompareSeries = { name: string; avg: number | null; median: number | null };
+
+const AVG_COLOR = BRAND_BLUE;   // 平均数：品牌蓝
+const MEDIAN_COLOR = "#00A870"; // 中位数：绿（辅助色，与箱线图中位线区分开靠图例）
+
+export function GroupedCompareChart({
+  series,
+  vertical = false,
+  fill = false,
+}: {
+  series: CompareSeries[];
+  /** true=竖向柱（bar），false=横向条（hbar） */
+  vertical?: boolean;
+  fill?: boolean;
+}) {
+  const data = series.map((s) => ({
+    label: s.name,
+    avg: s.avg != null && Number.isFinite(s.avg) ? Number(s.avg.toFixed(2)) : null,
+    median: s.median != null && Number.isFinite(s.median) ? Number(s.median.toFixed(2)) : null,
+  }));
+  const fmt = (v: unknown) => (v == null || !Number.isFinite(Number(v)) ? "—" : Number(v).toFixed(2));
+  const legend = (
+    <Legend
+      verticalAlign="top"
+      align="right"
+      height={26}
+      iconType="rect"
+      wrapperStyle={{ fontSize: 12, paddingBottom: 2 }}
+    />
+  );
+  const tooltip = (
+    <Tooltip
+      cursor={{ fill: "rgba(0,82,217,0.06)" }}
+      contentStyle={TOOLTIP_STYLE}
+      formatter={(v, name) => [fmt(v), String(name)]}
+    />
+  );
+
+  if (vertical) {
+    return (
+      <ChartFrame fill={fill}>
+        <ResponsiveContainer width="100%" height={fill ? "100%" : 240}>
+          <BarChart data={data} margin={{ top: showValueMargin(), right: 8, left: -22, bottom: 4 }} barGap={4}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#eef1f6" vertical={false} />
+            <XAxis dataKey="label" tick={AXIS_TICK} tickLine={false} axisLine={{ stroke: "#e5e9f0" }} interval="preserveStartEnd" minTickGap={12} />
+            <YAxis tick={AXIS_TICK} tickLine={false} axisLine={false} width={52} />
+            {tooltip}
+            {legend}
+            <Bar name="平均数" dataKey="avg" fill={AVG_COLOR} radius={[5, 5, 0, 0]} maxBarSize={40}>
+              <LabelList dataKey="avg" position="top" fill={AVG_COLOR} fontSize={11} fontWeight={600} formatter={fmt} />
+            </Bar>
+            <Bar name="中位数" dataKey="median" fill={MEDIAN_COLOR} radius={[5, 5, 0, 0]} maxBarSize={40}>
+              <LabelList dataKey="median" position="top" fill={MEDIAN_COLOR} fontSize={11} fontWeight={600} formatter={fmt} />
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      </ChartFrame>
+    );
+  }
+
+  // 横向条形图：树种排在 Y 轴，两根条并排向右延伸，数值标在条末。
+  const height = Math.max(series.length * 52 + 30, 128);
+  return (
+    <ChartFrame fill={fill}>
+      <ResponsiveContainer width="100%" height={fill ? "100%" : height}>
+        <BarChart data={data} layout="vertical" margin={{ top: 26, right: 48, left: 4, bottom: 0 }} barGap={4}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#eef1f6" horizontal={false} />
+          <XAxis type="number" tick={AXIS_TICK} tickLine={false} axisLine={false} />
+          <YAxis
+            type="category"
+            dataKey="label"
+            width={72}
+            tick={{ fontSize: 12, fill: "#4b5563" }}
+            tickLine={false}
+            axisLine={false}
+          />
+          {tooltip}
+          {legend}
+          <Bar name="平均数" dataKey="avg" fill={AVG_COLOR} radius={[0, 5, 5, 0]} maxBarSize={16}>
+            <LabelList dataKey="avg" position="right" fill={AVG_COLOR} fontSize={11} formatter={fmt} />
+          </Bar>
+          <Bar name="中位数" dataKey="median" fill={MEDIAN_COLOR} radius={[0, 5, 5, 0]} maxBarSize={16}>
+            <LabelList dataKey="median" position="right" fill={MEDIAN_COLOR} fontSize={11} formatter={fmt} />
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+    </ChartFrame>
+  );
+}
+
+/** 竖向柱顶端要留出数值标签的空间 */
+function showValueMargin() {
+  return 30;
+}
+
 /** 环形图（取值 3~6 种的占比）：图 + 右侧图例 */
 export function ChartPie({ entries }: { entries: Entry[] }) {
   const data = entries.map(([label, count]) => ({ label, count }));

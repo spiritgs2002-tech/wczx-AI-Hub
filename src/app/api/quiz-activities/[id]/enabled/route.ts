@@ -18,16 +18,18 @@ export async function PATCH(
     const shouldEnable = body.enabled === true;
     const newStatus = shouldEnable ? "ACTIVE" : "INACTIVE";
 
+    // MUST CHECK OWNERSHIP FOR BOTH DIRECTIONS: 归属校验必须在「生效/失效」两种操作之前都执行。
+    // 为什么：原先只在「设为生效」时查归属，「设为失效」直接 update —— 任何登录用户（含学生）都能停用任意作业（2026-11-27 审核发现）。
+    // ⛔ DO NOT REVERT：不要把归属查询挪回 if (shouldEnable) 分支内。
+    const quiz = await prisma.quizActivity.findFirst({
+      where: { id, SubProject: { task: { teacherId: String(payload.userId) } } },
+      include: { Question: { select: { id: true } } },
+    });
+    if (!quiz) return NextResponse.json({ error: "作业不存在" }, { status: 404 });
+
     // 如果要生效，先校验题目数量
-    if (shouldEnable) {
-      const quiz = await prisma.quizActivity.findFirst({
-        where: { id, SubProject: { task: { teacherId: String(payload.userId) } } },
-        include: { Question: { select: { id: true } } },
-      });
-      if (!quiz) return NextResponse.json({ error: "作业不存在" }, { status: 404 });
-      if (quiz.Question.length === 0) {
-        return NextResponse.json({ error: "请先添加题目，再生效作业" }, { status: 400 });
-      }
+    if (shouldEnable && quiz.Question.length === 0) {
+      return NextResponse.json({ error: "请先添加题目，再生效作业" }, { status: 400 });
     }
 
     const updated = await prisma.quizActivity.update({

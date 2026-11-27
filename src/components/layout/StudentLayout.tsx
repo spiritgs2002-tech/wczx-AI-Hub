@@ -29,6 +29,22 @@ export default function StudentLayout({
     }
   }, [router]);
 
+  // 平板 Firefox 对 dvh 的支持依版本而异（旧版仍需 JS 兜底）。
+  // 把浏览器报告的可视高度写成 CSS 变量，聊天页据此算高度，避免地址栏把底部输入区顶出屏幕。
+  useEffect(() => {
+    const apply = () => {
+      document.documentElement.style.setProperty("--student-vh", `${window.innerHeight}px`);
+    };
+    apply();
+    window.addEventListener("resize", apply);
+    const vv = window.visualViewport;
+    vv?.addEventListener("resize", apply);
+    return () => {
+      window.removeEventListener("resize", apply);
+      vv?.removeEventListener("resize", apply);
+    };
+  }, []);
+
   const handleLogout = () => {
     localStorage.removeItem("token");
     localStorage.removeItem("user");
@@ -38,7 +54,7 @@ export default function StudentLayout({
   return (
     <TLayout className="min-h-screen bg-[#F3F6F9]">
       {/* 顶部导航栏 */}
-      <Header className="bg-white border-b border-gray-200 px-6 flex items-center justify-between h-14" style={{ height: "56px" }}>
+      <Header className="bg-white border-b border-gray-200 px-6 flex items-center justify-between h-12" style={{ height: "48px" }}>
         <h2 className="text-lg font-bold text-[#00A870] whitespace-nowrap">WenChang SmartFusion</h2>
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2 text-sm text-[#63666F]">
@@ -57,7 +73,7 @@ export default function StudentLayout({
         </div>
       </Header>
       {/* 内容区 */}
-      <Content className="p-4">{children}</Content>
+      <Content className="px-4 py-3">{children}</Content>
 
     </TLayout>
   );

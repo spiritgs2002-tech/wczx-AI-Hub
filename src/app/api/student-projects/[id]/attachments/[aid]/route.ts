@@ -2,8 +2,7 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { verifyToken } from "@/lib/auth";
 import fs from "fs";
-import path from "path";
-import { UPLOAD_DIR } from "@/lib/project-submit";
+import { resolveUploadPath } from "@/lib/project-submit";
 
 // GET: 下载/预览附件。权限：本人 / 本班教师 / （任务全班可见时同班学生）
 export async function GET(
@@ -53,8 +52,9 @@ export async function GET(
     if (!isOwner && !isTeacher && !sameClassVisible)
       return new Response("无权限", { status: 403 });
 
-    const filePath = path.join(UPLOAD_DIR, att.storedName);
-    if (!fs.existsSync(filePath)) return new Response("文件已丢失", { status: 404 });
+    // ⛔ DO NOT REVERT：越界路径一律按丢失处理（见 src/lib/project-submit.ts resolveUploadPath）
+    const filePath = resolveUploadPath(att.storedName);
+    if (!filePath || !fs.existsSync(filePath)) return new Response("文件已丢失", { status: 404 });
 
     const data = fs.readFileSync(filePath);
     const mimeMap: Record<string, string> = {

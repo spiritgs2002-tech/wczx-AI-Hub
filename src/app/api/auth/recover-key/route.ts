@@ -15,6 +15,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // MUST REQUIRE NEW PASSWORD: 不再允许缺省重置为固定弱密码 123456（2026-11-27 审核发现）。
+    // 📐 CONTRACT：newPassword 必填且不少于 6 位；账号不存在与验证失败返回同一提示并计入失败次数，避免探测手机号。
+    // 🔗 RELATED：src/app/forgot-password/page.tsx（输入新密码）、另一个找回接口 recover-password。⛔ DO NOT REVERT。
+    if (typeof newPassword !== "string" || newPassword.length < 6) {
+      return NextResponse.json({ error: "新密码至少 6 位" }, { status: 400 });
+    }
+
     // 失败次数限制（⛔ DO NOT REMOVE：防暴力猜解，见 src/lib/rate-limit.ts）
     const rlKey = `recover-key:${String(phone).trim()}`;
     const waitMin = lockedMinutes(rlKey);
@@ -24,7 +31,8 @@ export async function POST(req: NextRequest) {
 
     const user = await prisma.user.findFirst({ where: { phone } });
     if (!user) {
-      return NextResponse.json({ error: "用户不存在" }, { status: 404 });
+      recordFailure(rlKey);
+      return NextResponse.json({ error: "密钥文件无效" }, { status: 401 });
     }
 
     if (!user.passwordKeyHash) {
@@ -39,8 +47,8 @@ export async function POST(req: NextRequest) {
     }
 
     // 更新密码
-    const password = newPassword || "123456";
-    const hashedPassword = await bcrypt.hash(password, 10);
+    clearFailures(rlKey);
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
     await prisma.user.update({
       where: { id: user.id },
       data: { password: hashedPassword },

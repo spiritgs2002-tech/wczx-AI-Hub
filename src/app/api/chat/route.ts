@@ -16,6 +16,7 @@ import {
   type ConversationTemplateVars,
 } from "@/lib/prompts";
 import { MATH_OUTPUT_RULES } from "@/lib/math-format";
+import { selectKnowledge, type KnowledgeSource } from "@/lib/knowledge-context";
 
 // 流内「已切换模型」标记：主模型失败切备用成功后，作为流的首个数据块发给前端；
 // 前端（src/app/student/chat/page.tsx）识别后显示「正在切换模型」提示，并从正文中剥离（不入库）。
@@ -118,12 +119,7 @@ export async function POST(req: NextRequest) {
     // 当前对话学生（用于 {studentName} 变量替换，让 AI 能叫出学生姓名）
     const currentUserPromise = prisma.user.findUnique({
       where: { id: userId },
-      select: { name: true },
-    });
-
-    const materialsPromise = prisma.material.findMany({
-      where: { classId, type: "LEARNING" },
-      include: { DocumentChunk: true },
+      select: { name: true, classId: true },
     });
 
     const presetConvPromise = presetConversationId
@@ -136,15 +132,49 @@ export async function POST(req: NextRequest) {
       : Promise.resolve(null);
 
     // 等待读查询完成，再决定写操作
-    const [classData, materials, presetConv, currentUser] = await Promise.all([
+    const [classData, presetConv, currentUser] = await Promise.all([
       classDataPromise,
-      materialsPromise,
       presetConvPromise,
       currentUserPromise,
     ]);
 
     if (!classData) {
       return new Response("班级不存在", { status: 404 });
+    }
+
+    // MUST VALIDATE CLIENT IDS: classId / conversationId / presetConversationId 都来自前端，必须核对归属后才能使用。
+    // 为什么：原先直接信任这三个参数 —— 学生可往别人的对话里写消息、读取他班学习资料、使用已停用的对话活动（2026-11-27 审核发现）。
+    // 📐 CONTRACT：
+    //   - 学生：classId 必须是本人当前班级；教师：classId 必须是本人的班级（预览/调试场景）。
+    //   - conversationId 必须属于本人且属于该班级。
+    //   - 学生使用 presetConversationId 时：活动需启用、所属课堂启用且已布置给该班级。
+    // 🔗 RELATED：src/app/student/chat/page.tsx 调用处；src/app/api/student/explorations/[id]/route.ts 同类布置校验。
+    // ⛔ DO NOT REVERT：校验必须在任何写库（创建对话 / 保存消息）之前执行。
+    const isTeacher = payload.role === "TEACHER";
+    if (isTeacher ? classData.teacherId !== userId : currentUser?.classId !== classId) {
+      return new Response("无权访问该班级", { status: 403 });
+    }
+    if (conversationId) {
+      const ownConv = await prisma.conversation.findFirst({
+        where: { id: conversationId, userId, classId },
+        select: { id: true },
+      });
+      if (!ownConv) return new Response("对话不存在", { status: 404 });
+    }
+    if (presetConversationId) {
+      if (!presetConv) return new Response("对话活动不存在", { status: 404 });
+      const pcTask = presetConv.SubProject.task;
+      if (isTeacher) {
+        if (pcTask.teacherId !== userId) return new Response("对话活动不存在", { status: 404 });
+      } else {
+        const assigned = await prisma.taskAssignment.findFirst({
+          where: { taskId: pcTask.id, classId },
+          select: { id: true },
+        });
+        if (!assigned || pcTask.status !== "ENABLED" || presetConv.enabled === false) {
+          return new Response("对话活动未开放", { status: 403 });
+        }
+      }
     }
 
 
@@ -214,6 +244,14 @@ export async function POST(req: NextRequest) {
 
     let systemPrompt = "";
 
+    // 检索用的提问文字：本条 + 上一条学生提问（便于理解追问）；语音占位符不参与检索
+    const knowledgeQuery = (messages as ChatMessage[])
+      .filter((m) => m.role === "user")
+      .slice(-2)
+      .map((m) => extractTextContent(m.content))
+      .filter((t) => t && t.trim() !== "(发送了语音)")
+      .join("\n");
+
     if (presetConv) {
       const task = presetConv.SubProject.task;
 
@@ -248,8 +286,10 @@ export async function POST(req: NextRequest) {
       }
 
       // 3. 知识库（课堂级，数据内容由软件自动追加）
+      //    资料多时只注入与提问相关的片段（见 src/lib/knowledge-context.ts），不再每条消息拼全文。
+      const kbSources: KnowledgeSource[] = [];
       if (task.knowledgeBase) {
-        systemPrompt += `\n## 课堂知识库：\n${task.knowledgeBase}\n`;
+        kbSources.push({ title: "## 课堂知识库：", content: task.knowledgeBase });
       }
       if (task.knowledgeBaseIds) {
         try {
@@ -257,14 +297,19 @@ export async function POST(req: NextRequest) {
           if (kbIds.length > 0) {
             const knowledgeBases = await prisma.knowledgeBase.findMany({
               where: { id: { in: kbIds }, teacherId: task.teacherId },
+              select: { name: true, content: true },
             });
             for (const kb of knowledgeBases) {
-              systemPrompt += `\n## 知识库「${kb.name}」：\n${kb.content}\n`;
+              kbSources.push({ title: `## 知识库「${kb.name}」：`, content: kb.content });
             }
           }
         } catch {
           // knowledgeBaseIds 解析失败，忽略
         }
+      }
+      for (const kb of selectKnowledge(kbSources, knowledgeQuery)) {
+        const note = kb.full ? "" : "（以下为与学生提问相关的摘录）\n";
+        systemPrompt += `\n${kb.title}\n${note}${kb.passages.join("\n……\n")}\n`;
       }
 
       // 3.2 ima 知识库（课堂绑定，2026-11-12）：按学生本次提问实时检索片段追加到提示词。
@@ -303,12 +348,20 @@ export async function POST(req: NextRequest) {
       );
       systemPrompt = strategyPrompt ? `${strategyPrompt}\n\n` : "";
 
-      // 学习材料：全量注入（材料总量通常不大）
-      const allChunks = materials.flatMap((m) => m.DocumentChunk);
+      // 学习材料：总量小时全量注入，量大时只注入与提问相关的片段（见 src/lib/knowledge-context.ts）。
+      // 只在本分支读取：对话活动分支不使用学习材料，原先也会把全部分片读出来。
+      const materials = await prisma.material.findMany({
+        where: { classId, type: "LEARNING" },
+        select: { DocumentChunk: { select: { content: true }, orderBy: { createdAt: "asc" } } },
+      });
+      const allChunks = selectKnowledge(
+        [{ title: MATERIAL_CONTENT_PREFIX, passages: materials.flatMap((m) => m.DocumentChunk.map((c) => c.content)) }],
+        knowledgeQuery
+      ).flatMap((s) => s.passages);
       if (allChunks.length > 0) {
         systemPrompt += `${MATERIAL_CONTENT_PREFIX}\n`;
         allChunks.forEach((chunk, i) => {
-          systemPrompt += `[片段${i + 1}] ${chunk.content}\n`;
+          systemPrompt += `[片段${i + 1}] ${chunk}\n`;
         });
       }
 

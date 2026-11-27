@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyToken } from "@/lib/auth";
+import { ownsQfTask } from "@/lib/api-auth";
 import { getQfCore, getAuthToken, QfError } from "@/lib/quickform";
 
 // GET /api/qf/count/{taskId}?filter=<json>
@@ -15,6 +16,10 @@ export async function GET(
     if (!token) return new Response("未登录", { status: 401 });
     const payload = await verifyToken(token);
     if (!payload) return new Response("登录已过期", { status: 401 });
+    // MUST BE OWNER TEACHER: 收集数据含全班学生答案，仅所属教师可读（2026-11-27 审核发现原先学生也能读）。
+    // 🔗 RELATED：src/lib/api-auth.ts ownsQfTask。⛔ DO NOT REMOVE。
+    if (payload.role !== "TEACHER") return new Response("无权限", { status: 403 });
+    if (!(await ownsQfTask(taskId, String(payload.userId)))) return new Response("任务不存在", { status: 404 });
 
     let filter: Record<string, unknown> | undefined;
     const rawFilter = req.nextUrl.searchParams.get("filter");

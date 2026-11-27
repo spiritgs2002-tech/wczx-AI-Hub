@@ -33,8 +33,24 @@ export function ensureUploadDir() {
 }
 
 // 清理目录/文件名中的非法字符
+// MUST BLOCK PATH TRAVERSAL: 名称会拼进磁盘路径的一级目录/文件名，必须保证结果是「单个普通路径段」。
+// 为什么：原先只替换了 / 和 \0；Windows 部署下反斜杠也是分隔符，学生名可来自开放注册，
+//   起名 "..\\..\\xxx" 就能把文件写到 uploads 之外（2026-11-27 审核发现）。
+// 📐 CONTRACT：替换 / \ 以及 Windows 非法字符 : * ? " < > | 和控制字符；结果若为 . 或 .. 则改为 _。
+//   只影响新上传文件；已入库的 storedName 不变。
+// 🔗 RELATED：saveUploadedFile（本文件）、resolveUploadPath（下载/删除共用的越界检查）。
+// ⛔ DO NOT REVERT：不要缩小替换字符集。
 export function sanitizeName(name: string): string {
-  return name.replace(/[/\0]/g, "_").trim() || "未命名";
+  // eslint-disable-next-line no-control-regex
+  const cleaned = name.replace(/[/\\:*?"<>|\x00-\x1f]/g, "_").trim();
+  if (!cleaned) return "未命名";
+  return /^\.+$/.test(cleaned) ? cleaned.replace(/\./g, "_") : cleaned;
+}
+
+/** 把入库的 storedName 解析为 UPLOAD_DIR 内的绝对路径；越界返回 null（纵深防御，DO NOT REMOVE） */
+export function resolveUploadPath(storedName: string): string | null {
+  const p = path.resolve(UPLOAD_DIR, storedName);
+  return p.startsWith(UPLOAD_DIR + path.sep) ? p : null;
 }
 
 export function getExt(filename: string): string {
@@ -106,7 +122,9 @@ export async function saveUploadedFile(
   }
 
   const buffer = Buffer.from(await file.arrayBuffer());
-  withTrackedFileAccess(() => fs.writeFileSync(path.join(UPLOAD_DIR, storedName), buffer));
+  const target = resolveUploadPath(storedName);
+  if (!target) throw new Error("附件存储路径不安全");
+  withTrackedFileAccess(() => fs.writeFileSync(target, buffer));
   return {
     storedName,
     originalName: file.name,
@@ -118,7 +136,8 @@ export async function saveUploadedFile(
 // 物理删除附件文件（忽略不存在）
 export function deleteAttachmentFile(storedName: string) {
   if (!storedName) return;
-  const p = path.join(UPLOAD_DIR, storedName);
+  const p = resolveUploadPath(storedName);
+  if (!p) return;
   withTrackedFileAccess(() => { try {
     if (fs.existsSync(p)) fs.unlinkSync(p);
   } catch (e) {
