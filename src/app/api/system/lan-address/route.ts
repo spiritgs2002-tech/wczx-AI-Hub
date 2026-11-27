@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import os from "os";
 import { verifyToken } from "@/lib/auth";
-import { getHttpsEntry } from "@/lib/https-entry";
+import { resolveHttpsPort } from "@/lib/https-entry";
 
 // ⛔ DO NOT REMOVE: MUST stay force-dynamic —— 否则构建期会把“打包机”的网卡地址固化进产物。
 export const dynamic = "force-dynamic";
@@ -39,5 +39,5 @@ export async function GET(request: Request) {
   }
   addresses.sort((a, b) => Number(isPrivate(b.ip)) - Number(isPrivate(a.ip)));
 
-  return NextResponse.json({ addresses, httpsPort: getHttpsEntry()?.port ?? null });
+  return NextResponse.json({ addresses, httpsPort: await resolveHttpsPort() });
 }

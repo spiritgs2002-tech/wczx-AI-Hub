@@ -30,6 +30,31 @@ export function getHttpsEntry(): EntryState | null {
   return g.__wczxHttpsEntry || null;
 }
 
+/**
+ * 解析 HTTPS 入口端口：优先读本进程登记的状态，读不到时直接探测本机端口是否在监听。
+ * 为什么：next dev 下路由与 instrumentation 可能不共享 globalThis（模块被分别打包/热更新后状态丢失），
+ *   导致 lan-address 返回 httpsPort=null，班级分享里的学生入口退回 http://IP:3000（2026-11-27 教师端截图）。
+ * 📐 CONTRACT：HTTPS_PORT=0 视为关闭，返回 null；探测超时 300ms，不阻塞接口。
+ * 🔗 RELATED：src/app/api/system/lan-address/route.ts、src/app/api/system/https-entry/route.ts。
+ */
+export async function resolveHttpsPort(): Promise<number | null> {
+  const state = getHttpsEntry();
+  if (state) return state.port;
+  const port = Number(process.env.HTTPS_PORT ?? 3443);
+  if (!port) return null;
+  const listening = await new Promise<boolean>((resolve) => {
+    const sock = net.connect({ host: "127.0.0.1", port });
+    const done = (ok: boolean) => {
+      sock.destroy();
+      resolve(ok);
+    };
+    sock.setTimeout(300, () => done(false));
+    sock.once("connect", () => done(true));
+    sock.once("error", () => done(false));
+  });
+  return listening ? port : null;
+}
+
 function lanIps(): string[] {
   const ips: string[] = [];
   for (const infos of Object.values(os.networkInterfaces())) {

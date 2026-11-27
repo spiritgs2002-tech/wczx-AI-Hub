@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getHttpsEntry } from "@/lib/https-entry";
+import { resolveHttpsPort } from "@/lib/https-entry";
 
 // ⛔ DO NOT REMOVE: MUST stay force-dynamic —— 入口端口是运行期状态，不能在构建期固化。
 export const dynamic = "force-dynamic";
@@ -13,5 +13,5 @@ export const dynamic = "force-dynamic";
  * 🔗 RELATED：src/lib/https-entry.ts（入口本体）、src/lib/https-switch.ts（前端调用方）。
  */
 export async function GET() {
-  return NextResponse.json({ httpsPort: getHttpsEntry()?.port ?? null });
+  return NextResponse.json({ httpsPort: await resolveHttpsPort() });
 }
