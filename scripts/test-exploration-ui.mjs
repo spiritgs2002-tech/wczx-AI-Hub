@@ -26,7 +26,7 @@ async function main() {
   const pageErrors = [];
   page.on("pageerror", (e) => pageErrors.push(e.message));
 
-  await login(page, "13338183337", "123456");
+  await login(page, process.env.TEST_TEACHER_PHONE || "19900000000", process.env.TEST_ACCOUNT_PASSWORD || "Test@2026");
   await page.goto(`${BASE}/teacher/tasks`);
 
   // 等「新建探究」按钮出现（首次加载会自动展开 ENABLED 课堂）

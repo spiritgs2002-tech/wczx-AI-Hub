@@ -3,7 +3,7 @@ import fs from 'fs';
 const BASE = 'http://localhost:3000';
 
 (async () => {
-  const tRes = await fetch(BASE+'/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({phone:'13338183337',password:'123456'})});
+  const tRes = await fetch(BASE+'/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({phone:process.env.TEST_TEACHER_PHONE || "19900000000",password:process.env.TEST_ACCOUNT_PASSWORD || "Test@2026"})});
   const {token} = await tRes.json();
   const origHtml = fs.readFileSync('/var/folders/w6/lklfy38j7w3cjf0j0g0py4vc0000gn/T/codebuddy-dropped-files/5acec7b5-bda3-4570-b911-f15fef7cd1b5/三角形面积_·_交互式理解-html-20260729.html','utf-8');
   const cRes = await fetch(BASE+'/api/exploration-activities',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},body:JSON.stringify({subProjectId:'cms5xkah70002me8tgwtxh9oi',title:'a'+Date.now(),htmlContent:origHtml,enableAiCompanion:true})});

@@ -75,8 +75,8 @@ function assert(cond, msg) {
 
 async function main() {
   console.log("=== 阶段 1：登录 ===");
-  const teacherToken = await login("13338183337", "123456");
-  const studentToken = await login("13800000001", "123456");
+  const teacherToken = await login(process.env.TEST_TEACHER_PHONE || "19900000000", process.env.TEST_ACCOUNT_PASSWORD || "Test@2026");
+  const studentToken = await login("13800000001", process.env.TEST_ACCOUNT_PASSWORD || "Test@2026");
   console.log("  教师 / 学生 登录成功");
 
   console.log("\n=== 阶段 2：开启提交 → 绑定 QF 任务 ===");

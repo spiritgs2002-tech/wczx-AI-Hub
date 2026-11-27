@@ -29,15 +29,15 @@ export async function POST(
       return NextResponse.json({ error: "学生不存在" }, { status: 404 });
     }
 
-    // 重置密码：设置为默认密码 123456
-    const hashedPassword = await bcrypt.hash("123456", 10);
+    // 重置密码：设置为可通过环境变量配置的初始密码
+    const hashedPassword = await bcrypt.hash(process.env.STUDENT_INITIAL_PASSWORD || "Student@2026", 10);
     await prisma.user.update({
       where: { id: studentId },
       data: { password: hashedPassword },
     });
 
     return NextResponse.json({
-      message: "密码已重置为默认密码（123456）",
+      message: "密码已重置为初始密码，请登录后自行修改",
       studentName: student.name,
     });
   } catch (error) {

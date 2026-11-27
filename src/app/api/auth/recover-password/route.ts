@@ -15,7 +15,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // MUST REQUIRE NEW PASSWORD: 不再允许缺省重置为固定弱密码 123456（2026-11-27 审核发现）。
+    // MUST REQUIRE NEW PASSWORD: 不再允许缺省重置为固定弱密码（2026-11-27 审核发现）。
     // 📐 CONTRACT：newPassword 必填且不少于 6 位；账号不存在与验证失败返回同一提示并计入失败次数，避免探测手机号。
     // 🔗 RELATED：src/app/forgot-password/page.tsx（输入新密码）、另一个找回接口 recover-key。⛔ DO NOT REVERT。
     if (typeof newPassword !== "string" || newPassword.length < 6) {

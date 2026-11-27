@@ -3,7 +3,7 @@
  * task_id：11 位 = 9 位字母数字 + 2 位大写字母后缀（如 oU59mLzPJPU）
  */
 
-const ALNUM = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+const ALNUM = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ9876543210";
 const UPPER = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
 function randomChars(pool: string, len: number): string {

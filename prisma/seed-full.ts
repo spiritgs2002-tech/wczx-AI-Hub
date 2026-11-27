@@ -48,13 +48,13 @@ export async function seedSystemConfig() {
  * 由 npm run db:seed 调用，或由新教师注册时通过 prisma/seed-demo.ts 间接调用
  */
 export async function seedTeacherData(teacherId: string, teacherName: string, includeTemplates = true) {
-  // MUST RESTRICT TO DEMO USE: 历史演示数据包含 123456 弱密码账号，不得用于生产初始化。
+  // MUST RESTRICT TO DEMO USE: 历史演示数据包含弱密码账号（由 SEED_DEMO_PASSWORD 指定），不得用于生产初始化。
   // 📐 CONTRACT: 正式首次注册使用 seed-initial.ts；此函数仅供显式开发演示流程。
   // 🔗 RELATED: prisma/seed-demo.ts、src/app/api/auth/register/route.ts。
   // ⛔ DO NOT REVERT: 避免未来把含弱密码的演示账号重新接入生产注册。
   console.log(`开始同步教师 [${teacherName}] 的专属数据...`);
 
-  const hashedPassword = await bcrypt.hash("123456", 10);
+  const hashedPassword = await bcrypt.hash(process.env.SEED_DEMO_PASSWORD || "Demo@2026", 10);
 
 
   // 3. 班级 - 使用 upsert 基于 inviteCode
@@ -254,7 +254,7 @@ async function main() {
   await seedSystemConfig();
 
   // 教师 - 查找或创建（仅开发者 npm run db:seed 使用）
-  const hashedPassword = await bcrypt.hash("123456", 10);
+  const hashedPassword = await bcrypt.hash(process.env.SEED_DEMO_PASSWORD || "Demo@2026", 10);
   let teacher = await prisma.user.findFirst({
     where: { role: "TEACHER" },
   });
@@ -291,7 +291,7 @@ async function main() {
   console.log("任务分配:", await prisma.taskAssignment.count());
 
   console.log("\n数据同步完成！");
-  console.log("登录信息：teacher@wczx-ai-hub.com / 123456");
+  console.log("登录信息：teacher@wczx-ai-hub.com / 请查看环境变量 SEED_DEMO_PASSWORD");
 }
 
 // 仅当直接执行时（npm run db:seed）运行 main()，被导入时不运行

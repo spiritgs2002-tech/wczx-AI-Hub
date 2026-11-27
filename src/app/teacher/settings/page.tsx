@@ -1760,8 +1760,8 @@ export default function TeacherSettingsPage() {
                 {[
                   { label: "版本", value: "文昌智融平台 开源版本" },
                   { label: "部署模式", value: "本地运行" },
-                  { label: "开发", value: "句容龚老师和他的AI助手们" },
-                  { label: "邮箱", value: "spiritgs@qq.com" },
+                  { label: "开发", value: "教学应用开发团队" },
+                  { label: "邮箱", value: "contact@example.com" },
                   { label: "数据库", value: "SQLite (本地文件)" },
                   { label: "访问地址", value: typeof window !== "undefined" ? `${window.location.host}` : "localhost:3000" },
                   // 本项目基于常州管老师的开源项目 QuickClass 二次开发，此行为原作者致谢 —— DO NOT REMOVE

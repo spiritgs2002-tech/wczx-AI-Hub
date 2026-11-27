@@ -21,10 +21,10 @@ const THEMES = [
     if (m.type() === "error") errors.push(m.text());
   });
 
-  // 登录教师账号（13338183337 / 123456）
+  // 登录教师账号（请使用环境变量 TEST_TEACHER_PHONE / TEST_ACCOUNT_PASSWORD）
   await page.goto(`${BASE}/login`, { waitUntil: "networkidle" });
-  await page.fill('input[placeholder*="手机号"], input[placeholder*="账号"]', "13338183337");
-  await page.fill('input[type="password"]', "123456");
+  await page.fill('input[placeholder*="手机号"], input[placeholder*="账号"]', process.env.TEST_TEACHER_PHONE || "19900000000");
+  await page.fill('input[type="password"]', process.env.TEST_ACCOUNT_PASSWORD || "Test@2026");
   await page.click('button[type="submit"], button:has-text("登录")');
   await page.waitForTimeout(3000);
 

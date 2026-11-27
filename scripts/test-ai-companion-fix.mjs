@@ -14,7 +14,7 @@ async function main() {
 
   const loginRes = await fetch(`${BASE}/api/auth/login`, {
     method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ phone: "13338183337", password: "123456" }),
+    body: JSON.stringify({ phone: process.env.TEST_TEACHER_PHONE || "19900000000", password: process.env.TEST_ACCOUNT_PASSWORD || "Test@2026" }),
   });
   if (!loginRes.ok) { console.error("登录失败"); process.exit(1); }
   const { token } = await loginRes.json();

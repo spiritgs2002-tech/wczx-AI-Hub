@@ -105,7 +105,7 @@ export default function TeacherStudentsPage() {
 
   const downloadTemplate = () => {
     const template = `姓名,学号,密码
-张三,2026001,123456
+张三,2026001,Student@2026
 李四,2026002,
 王五,2026003,password123`;
     const blob = new Blob([template], { type: "text/csv;charset=utf-8;" });
@@ -224,7 +224,7 @@ export default function TeacherStudentsPage() {
             <div className="bg-[var(--warning-light)] rounded-lg p-3 text-sm text-[var(--warning)]">
               <p className="font-medium mb-1">重置后：</p>
               <ul className="list-disc list-inside space-y-0.5 text-[var(--warning)]">
-                <li>密码将恢复为默认密码（123456）</li>
+                <li>密码将重置为系统初始密码（请联系管理员）</li>
                 <li>学生可使用姓名/学号+密码登录</li>
               </ul>
             </div>
@@ -266,12 +266,12 @@ export default function TeacherStudentsPage() {
             <Input
               value={importText}
               onChange={(val) => setImportText(val)}
-              placeholder="每行一个学生，格式：姓名,学号,密码&#10;例如：&#10;张三,2026001,123456&#10;李四,2026002,&#10;王五,2026003,password123"
+              placeholder="每行一个学生，格式：姓名,学号,密码&#10;例如：&#10;张三,2026001,Student@2026&#10;李四,2026002,&#10;王五,2026003,password123"
               style={{ width: "100%" }}
               status="default"
             />
             <p className="text-xs text-[var(--muted)] mt-1">
-              每行一个学生，格式：姓名,学号,密码（学号和密码可选，密码留空则默认123456）
+              每行一个学生，格式：姓名,学号,密码（学号和密码可选，密码留空则使用系统初始密码）
             </p>
           </div>
 
@@ -286,7 +286,7 @@ export default function TeacherStudentsPage() {
               <li>姓名中的空格会自动去除</li>
               <li>姓名在本次导入中不能重复</li>
               <li>已存在的学生（同名+同班级）将跳过</li>
-              <li>密码留空默认为 <strong>123456</strong></li>
+              <li>密码留空时使用系统初始密码（请联系管理员）</li>
               <li>学生可使用姓名/学号+密码登录，或姓名+邀请码（无密码时）</li>
             </ul>
           </div>

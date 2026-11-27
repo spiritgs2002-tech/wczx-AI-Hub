@@ -8,8 +8,8 @@ async function main() {
 
   // 登录
   await page.goto(`${BASE}/login`);
-  await page.locator('input').first().fill("13338183337");
-  await page.locator('input[type="password"]').fill("123456");
+  await page.locator('input').first().fill(process.env.TEST_TEACHER_PHONE || "19900000000");
+  await page.locator('input[type="password"]').fill(process.env.TEST_ACCOUNT_PASSWORD || "Test@2026");
   await page.getByRole("button", { name: "登录" }).click();
   await page.waitForURL("**/teacher/**", { timeout: 10000 });
   await page.goto(`${BASE}/teacher/tasks`);

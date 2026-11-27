@@ -54,9 +54,9 @@ async function main() {
     fs.writeFileSync('.teacher-active/.unknown', '');
     await assert.rejects(waitForTrackedDataAccess(), /未知文件/);
     fs.unlinkSync('.teacher-active/.unknown');
-    fs.writeFileSync('.teacher-active/99999999-0123456789abcdef01234567.active', '');
+    fs.writeFileSync('.teacher-active/99999999-abcdef2026abcdef2026.active', '');
     await waitForTrackedDataAccess();
-    assert.equal(fs.existsSync('.teacher-active/99999999-0123456789abcdef01234567.active'), false, '僵尸标记清理');
+    assert.equal(fs.existsSync('.teacher-active/99999999-abcdef2026abcdef2026.active'), false, '僵尸标记清理');
     let release;
     const running = withTrackedDataAccess(() => new Promise((resolve) => { release = resolve; }));
     const originalLoad = Module._load;

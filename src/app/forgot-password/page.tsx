@@ -12,7 +12,7 @@ export default function ForgotPasswordPage() {
   const [step, setStep] = useState<"input" | "verify" | "success">("input");
   const [hasQuestion, setHasQuestion] = useState(false);
   const [hasKey, setHasKey] = useState(false);
-  // MUST ASK FOR NEW PASSWORD: 找回密码由用户自设新密码，不再统一重置为 123456（2026-11-27 审核发现）。
+  // MUST ASK FOR NEW PASSWORD: 找回密码由用户自设新密码，不再统一重置为（2026-11-27 审核发现）。
   // 🔗 RELATED：src/app/api/auth/recover-password、recover-key 要求 newPassword ≥ 6 位。⛔ DO NOT REVERT。
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");

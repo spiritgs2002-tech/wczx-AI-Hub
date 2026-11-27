@@ -19,8 +19,8 @@ function makeFile(name, content, type) {
 }
 
 async function main() {
-  const teacherToken = await login("13338183337", "123456");
-  const studentToken = await login("13800000001", "123456");
+  const teacherToken = await login(process.env.TEST_TEACHER_PHONE || "19900000000", process.env.TEST_ACCOUNT_PASSWORD || "Test@2026");
+  const studentToken = await login("13800000001", process.env.TEST_ACCOUNT_PASSWORD || "Test@2026");
 
   // 找一个 subProject（教师第一个课堂的第一个学习活动）
   const tasksRes = await fetch(`${BASE}/api/tasks`, {

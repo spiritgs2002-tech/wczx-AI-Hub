@@ -12,8 +12,8 @@ const KEEP = process.env.KEEP_TEST_DATA === "1";
 const DB = "prisma/prisma/dev.db";
 const SUB_PROJECT_ID = "cms05ta5u000eeius9k9iq9n2"; // 脸盆教师的「默认活动」
 const CLASS_ID = "cmr77iixm0002igbunngd5lzt"; // 五一班
-const TEACHER = { phone: "13338183337", password: "123456" };
-const STUDENT = { phone: "13800000001", password: "123456" }; // 张三
+const TEACHER = { phone: process.env.TEST_TEACHER_PHONE || "19900000000", password: process.env.TEST_ACCOUNT_PASSWORD || "Test@2026" };
+const STUDENT = { phone: "13800000001", password: process.env.TEST_ACCOUNT_PASSWORD || "Test@2026" }; // 张三
 
 // —— 有评分 HTML：口算闯关（含「答对/答错/得分」文案 + updateScore 上报）——
 const SCORING_HTML = `<!DOCTYPE html>

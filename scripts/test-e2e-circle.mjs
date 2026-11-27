@@ -15,7 +15,7 @@ async function main() {
   const login = await api("/api/auth/login", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ phone: "13338183337", password: "123456" }),
+    body: JSON.stringify({ phone: process.env.TEST_TEACHER_PHONE || "19900000000", password: process.env.TEST_ACCOUNT_PASSWORD || "Test@2026" }),
   });
   console.log("登录:", login.status, login.data?.user?.name);
   const token = login.data?.token;
@@ -27,7 +27,7 @@ async function main() {
   const stuLogin = await api("/api/auth/login", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ phone: "13800000001", password: "123456" }),
+    body: JSON.stringify({ phone: "13800000001", password: process.env.TEST_ACCOUNT_PASSWORD || "Test@2026" }),
   });
   const stuToken = stuLogin.data?.token;
   console.log("学生:", stuLogin.status, stuLogin.data?.user?.name);

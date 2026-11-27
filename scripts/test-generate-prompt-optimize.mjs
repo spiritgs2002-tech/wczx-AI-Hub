@@ -5,7 +5,7 @@ async function login() {
   const res = await fetch(BASE + "/api/auth/login", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ phone: "13338183337", password: "123456" }),
+    body: JSON.stringify({ phone: process.env.TEST_TEACHER_PHONE || "19900000000", password: process.env.TEST_ACCOUNT_PASSWORD || "Test@2026" }),
   });
   const data = await res.json();
   if (!data.token) throw new Error("登录失败: " + JSON.stringify(data));

@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
     const results = { success: 0, failed: 0, errors: [] as string[], warnings: [] as string[] };
     const seenNames = new Set<string>();
     const seenStudentNos = new Set<string>();
-    const DEFAULT_PASSWORD = "123456";
+    const DEFAULT_PASSWORD = process.env.STUDENT_INITIAL_PASSWORD || "Student@2026";
 
     for (const student of students) {
       // 姓名或学号至少一个

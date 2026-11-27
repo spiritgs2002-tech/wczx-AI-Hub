@@ -10,7 +10,7 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
 (async () => {
   console.log("=== 最终验证：名片式 CRUD（隐藏老入口） ===\n");
-  const loginRes = await fetch(`${BASE}/api/auth/login`, { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ phone:"13338183337", password:"123456" }) });
+  const loginRes = await fetch(`${BASE}/api/auth/login`, { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ phone:process.env.TEST_TEACHER_PHONE || "19900000000", password:process.env.TEST_ACCOUNT_PASSWORD || "Test@2026" }) });
   const { token, user } = await loginRes.json();
   const b = await chromium.launch({ headless:true });
   const p = await b.newPage();
