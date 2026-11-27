@@ -631,6 +631,16 @@ export function getLastSpeakError(): string {
   return lastServerError;
 }
 
+// 播放开始后才失败（中途断流、解码失败）时，speakSmart 早已返回 "server"，调用方无从得知 ——
+// 用订阅把原因推给界面（2026-11-27 复核补充）。🔗 RELATED：SpeakButton 按 owner 订阅并提示。
+const speakErrorSubs = new Set<(owner: string | null, reason: string) => void>();
+export function subscribeSpeakError(cb: (owner: string | null, reason: string) => void): () => void {
+  speakErrorSubs.add(cb);
+  return () => {
+    speakErrorSubs.delete(cb);
+  };
+}
+
 /** <audio> 播放失败时，补一次 GET 拿接口的真实错误（接口在出声前失败会返回 JSON {error}） */
 async function describePlayError(e: unknown, url: string): Promise<string> {
   const name = (e as { name?: string } | null)?.name || "";
@@ -649,6 +659,10 @@ async function describePlayError(e: unknown, url: string): Promise<string> {
     }
   } catch {
     return "无法连接语音接口";
+  }
+  const media = e as { code?: number; message?: string } | null;
+  if (typeof MediaError !== "undefined" && e instanceof MediaError) {
+    return `音频播放中断（MediaError ${media?.code}${media?.message ? "：" + media.message : ""}）`;
   }
   return (e instanceof Error && e.message) || name || "播放失败";
 }
@@ -706,7 +720,17 @@ export async function speakSmart(
       }
     };
     audio.onended = done;
-    audio.onerror = done;
+    // MUST DIAGNOSE ASYNC ERRORS: 主动停止时 releaseAudio 会先清空 onerror，这里只会收到真实的播放失败。
+    audio.onerror = () => {
+      if (currentAudio !== audio) return;
+      done();
+      const owner = opts.owner ?? null;
+      void describePlayError(audio.error, playUrl).then((reason) => {
+        lastServerError = reason;
+        console.warn("[朗读] 播放中途失败：", reason);
+        speakErrorSubs.forEach((cb) => cb(owner, reason));
+      });
+    };
     return "server";
   } catch (e) {
     if (seq === speakSeq) releaseAudio();

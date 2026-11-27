@@ -10,7 +10,7 @@
 import { useEffect, useState } from "react";
 import { MessagePlugin } from "tdesign-react";
 import { PlayCircleIcon, StopCircleIcon } from "tdesign-icons-react";
-import { getLastSpeakError, speakSmart, stopSpeaking, subscribeSpeakingOwner } from "@/lib/speech";
+import { getLastSpeakError, speakSmart, stopSpeaking, subscribeSpeakError, subscribeSpeakingOwner } from "@/lib/speech";
 
 interface Props {
   /** 要朗读的原文（Markdown + LaTeX） */
@@ -24,6 +24,14 @@ export default function SpeakButton({ text, owner, className = "" }: Props) {
   const [playing, setPlaying] = useState(false);
 
   useEffect(() => subscribeSpeakingOwner((current) => setPlaying(current === owner)), [owner]);
+  // 播放开始后才失败（中途断流等）也要提示原因；自动朗读与本按钮共用同一 owner，故只在这里提示一次。
+  useEffect(
+    () =>
+      subscribeSpeakError((who, reason) => {
+        if (who === owner) MessagePlugin.warning(`朗读中断：${reason}`, 8000);
+      }),
+    [owner],
+  );
 
   const disabled = !text.trim();
 
