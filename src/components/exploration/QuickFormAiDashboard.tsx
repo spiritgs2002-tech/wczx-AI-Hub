@@ -26,7 +26,7 @@ import {
   type AiDashboardChart,
   type AiDashboardConfig,
 } from "@/lib/prompts/dashboard-config";
-import { ChartBar, ChartBoxPlot, MultiBoxPlot, ChartHBar, ChartLine, ChartPie, ChartScatter, PIE_PALETTE, type Entry } from "./DashboardCharts";
+import { ChartBar, ChartBoxPlot, MultiBoxPlot, ChartHBar, ChartLine, ChartPie, ChartScatter, GroupedCompareChart, PIE_PALETTE, type CompareSeries, type Entry } from "./DashboardCharts";
 import { IDENTIFIER_KEY_HINTS, type QfRecordItem } from "./QuickFormDashboard";
 import { maskDisplayName, useProjectionSafe } from "@/lib/projection-safe";
 
@@ -714,15 +714,21 @@ function ChartBody({
       return { name: safe && isIdentifierLabel(chart.groupBy!) ? maskDisplayName(name, i) : name, stats: nums.length >= 2 ? computeNumberStats(nums) : null, nums };
     });
     if (chart.type === "boxplot") return <MultiBoxPlot series={grouped} color={color} fill={fill} />;
-    // 分组条形图按「中位数」比较（课堂讨论的是典型叶片，不被极端值拉偏），并在条形末端显示数值。
-    const entries: Entry[] = grouped.flatMap(({ name, nums }) => {
+    // ⛔ DO NOT REVERT: 树叶课的教学难点是「平均数被极端叶拉偏、中位数更稳健」，
+    //   分组对比必须同时给出平均数与中位数双系列，学生才有依据判断「该看哪个」。
+    //   只给中位数会让教案任务三「辨数」在大屏上落不了地。
+    //   📐 CONTRACT: 同一组记录同时算 avg 与 median，柱顶/条末标数值；bar 竖向柱、hbar 横向条。
+    const compare: CompareSeries[] = grouped.map(({ name, nums }) => {
       const stats = nums.length ? computeNumberStats(nums) : null;
-      // 分组对比一律用中位数（典型叶片，不被极端值拉偏），bar / hbar 口径一致。
-      return stats ? [[name, stats.median] as Entry] : [];
+      return { name, avg: stats?.avg ?? null, median: stats?.median ?? null };
     });
-    if (chart.type === "line") return <LineView entries={entries} color={color} fill={fill} />;
-    if (chart.type === "hbar") return <BarList entries={entries} color={color} showValue fill={fill} />;
-    return <ColumnChart entries={entries} color={color} showValue fill={fill} />;
+    if (chart.type === "line") {
+      // 折线走势只看中位数（典型值），避免平均数随极端值抖动；柱状对比才用双系列。
+      const entries: Entry[] = compare.filter((s) => s.median != null).map((s) => [s.name, s.median!]);
+      return <LineView entries={entries} color={color} fill={fill} />;
+    }
+    if (chart.type === "hbar") return <GroupedCompareChart series={compare} vertical={false} fill={fill} />;
+    return <GroupedCompareChart series={compare} vertical fill={fill} />;
   }
 
   // MUST SHARE THE SUMMARY ALGORITHM: 同一字段的箱体、中位线与 KPI 必须一致。

@@ -104,7 +104,7 @@ export default function StudentLoginPage() {
               切换到 HTTPS 地址（可使用语音）
             </Button>
             <p className="mt-2 text-xs text-orange-600">
-              首次打开若提示「您的连接不是私密连接」，点「高级」→「继续访问」即可。
+              首次打开若提示连接不安全（Chrome 显示「您的连接不是私密连接」，Firefox 显示「潜在安全风险」），点「高级」→「继续访问 / 接受风险并继续」即可。
             </p>
           </div>
         )}
