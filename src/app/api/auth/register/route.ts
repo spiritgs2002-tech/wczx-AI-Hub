@@ -19,7 +19,10 @@ export async function POST(req: NextRequest) {
 
     const { phone, password, name, email, school, recoveryQuestion, recoveryAnswer } = await req.json();
 
-    if (!phone || !password || !name) {
+    if (typeof phone !== "string" || !phone || typeof password !== "string" || !password ||
+        typeof name !== "string" || !name || [email, school, recoveryQuestion, recoveryAnswer].some(
+          (value) => value != null && typeof value !== "string"
+        )) {
       return NextResponse.json(
         { error: "请填写所有必填项" },
         { status: 400 }
@@ -53,27 +56,38 @@ export async function POST(req: NextRequest) {
     // 📐 CONTRACT: 只为新账号创建，不覆盖已有教师的模板；任一写入失败则事务回滚。
     // 🔗 RELATED: src/lib/starter-templates.ts、prisma/seed-full.ts、prisma/init-templates.ts。
     // ⛔ DO NOT REVERT: 不依赖 seed-demo 的后台执行，首次登录也必须能使用默认模板。
-    const user = await prisma.$transaction(async (tx) => {
-      const created = await tx.user.create({
-      data: {
-        phone,
-        email,
-        password: hashedPassword,
-        name,
-        role: "TEACHER",
-        school,
-        recoveryQuestion,
-        recoveryAnswerHash,
-        passwordKeyHash,
-      },
-      });
+    const registration = await prisma.$transaction(async (tx) => {
+      // MUST CLAIM THE TEACHER SLOT AT THE FIRST WRITE: SQLite serializes this INSERT with other writers.
+      // 📐 CONTRACT: both existence checks and insertion are one statement; seeds roll back with the account.
+      // 🔗 RELATED: api-auth.ts QuickForm orphan ownership and prisma/schema.prisma User.
+      // ⛔ DO NOT REVERT: an earlier count or a transaction that reads before the first write is insufficient.
+      const id = crypto.randomUUID();
+      const inserted = await tx.$executeRaw`
+        INSERT INTO "User" ("id", "phone", "email", "password", "name", "role", "school",
+          "recoveryQuestion", "recoveryAnswerHash", "passwordKeyHash")
+        SELECT ${id}, ${phone}, ${email ?? null}, ${hashedPassword}, ${name}, 'TEACHER', ${school ?? null},
+          ${recoveryQuestion ?? null}, ${recoveryAnswerHash}, ${passwordKeyHash}
+        WHERE NOT EXISTS (SELECT 1 FROM "User" WHERE "role" = 'TEACHER')
+          AND NOT EXISTS (SELECT 1 FROM "User" WHERE "phone" = ${phone})
+      `;
+      if (inserted === 0) {
+        const teacher = await tx.user.findFirst({ where: { role: "TEACHER" }, select: { id: true } });
+        return { kind: teacher ? "teacher" : "phone" } as const;
+      }
+      const created = await tx.user.findUniqueOrThrow({ where: { id } });
       await tx.analysisTemplate.createMany({ data: Object.entries(starterTemplates).map(([type, template]) => ({
         teacherId: created.id, type, name: template.name, content: template.content,
         isDefault: true, updatedAt: new Date(),
       })) });
       await seedInitialClass(tx, created.id);
-      return created;
+      return { kind: "created", user: created } as const;
     });
+    if (registration.kind !== "created") {
+      return registration.kind === "teacher"
+        ? NextResponse.json({ error: "本地部署仅支持一个教师账号，请直接登录" }, { status: 403 })
+        : NextResponse.json({ error: "该手机号已被注册" }, { status: 409 });
+    }
+    const { user } = registration;
     accountCreated = true;
 
     // ⛔ DO NOT ADD BACK：不向任何第三方站点同步教师个人信息（原注释掉的 maoyouhui.org sync-user / check-phone 已于 2026-11-11 删除）

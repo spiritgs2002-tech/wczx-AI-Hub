@@ -7,6 +7,7 @@
 import { prisma } from "@/lib/prisma";
 import { QuickFormCore, QfError, QfErrorCode } from "@/lib/quickform-core";
 import type { QfRecord } from "@/lib/quickform-core";
+import { validateAgainstSchema } from "@/lib/quickform-core/validation";
 import { generateRecordId } from "@/lib/quickform-core/id";
 import { PrismaAdapter } from "./prisma-adapter";
 
@@ -44,18 +45,23 @@ export async function submitQfRecord(
   return qfCore.submit(taskId, data, meta);
 }
 
-// ⚠️ GOTCHA: 单条仍走 core.replaceRecord，批量才在此用同一事务替换多条。
+// ⚠️ GOTCHA: 通用单条仍走 core；探究单条与批量共用关联事务，避免切换模式时竞争。
 // 📐 CONTRACT: 输入是已清洗的扁平明细，返回顺序与入参一致；🔗 RELATED: qf-binding.ts。
 // ⛔ DO NOT REVERT: 不能把删除和插入拆开，插入失败时必须保留旧记录。
 export async function submitQfRecordBatch(
   taskId: string,
   rows: Array<Record<string, unknown>>,
-  opts?: { replaceRecordIds?: string[]; ip?: string; studentId?: string },
+  opts?: { replaceRecordIds?: string[]; ip?: string; studentId?: string; submission?: { id: string; batch: boolean; attempt: string } },
 ): Promise<QfRecord[]> {
   if (!rows.length) return [];
   const task = await getQfAdapter().getTask(taskId);
   if (!task) throw new QfError(QfErrorCode.TASK_NOT_FOUND, `任务不存在: ${taskId}`);
   if (task.status !== "open") throw new QfError(QfErrorCode.TASK_CLOSED, `任务已关闭收集: ${task.name}`);
+
+  if (opts?.submission && !opts.submission.batch) {
+    const fields = JSON.parse(task.fieldsJson);
+    if (fields.length) validateAgainstSchema(fields, rows[0]);
+  }
 
   const submittedAt = new Date().toISOString();
   const studentId = opts?.studentId || null;
@@ -68,8 +74,32 @@ export async function submitQfRecordBatch(
   }));
 
   await prisma.$transaction(async (tx) => {
-    if (opts?.replaceRecordIds?.length) {
-      await tx.qfRecord.deleteMany({ where: { taskId, id: { in: opts.replaceRecordIds } } });
+    let replaceIds = opts?.replaceRecordIds ?? [];
+    if (opts?.submission) {
+      // DO NOT REVERT: 读取旧关联、更新关联和替换明细必须同时提交。
+      // 📐 CONTRACT: 竞争失败整体回滚；🔗 RELATED: exploration-activities/[id]/submit 的重试提示。
+      const { id, batch, attempt } = opts.submission;
+      const prior = await tx.explorationSubmission.findUniqueOrThrow({ where: { id } });
+      const progress = JSON.parse(prior.answers);
+      // MUST KEEP THE LATEST ATTEMPT: 较早的请求不能给更新的行为快照写入明细或解除待提交状态。
+      // 📐 CONTRACT: 标记与明细一起提交；🔗 RELATED: exploration submit 的 qfPendingAttempt。
+      if (progress?.qfPendingAttempt !== attempt) throw new Error("提交已更新，请检查后重试");
+      progress.qfPendingAttempt = null;
+      let linked: unknown;
+      try { linked = JSON.parse(prior.qfRecordIdsJson ?? "null"); } catch { linked = null; }
+      replaceIds = Array.isArray(linked) ? linked.filter((id): id is string => typeof id === "string" && !!id) : [];
+      if (!replaceIds.length && prior.qfRecordId) replaceIds = [prior.qfRecordId];
+      await tx.explorationSubmission.update({
+        where: { id: prior.id },
+        data: {
+          qfRecordId: records[0].id,
+          qfRecordIdsJson: batch ? JSON.stringify(records.map(({ id }) => id)) : null,
+          answers: JSON.stringify(progress),
+        },
+      });
+    }
+    if (replaceIds.length) {
+      await tx.qfRecord.deleteMany({ where: { taskId, id: { in: replaceIds } } });
     }
     await tx.qfRecord.createMany({ data: records });
   });

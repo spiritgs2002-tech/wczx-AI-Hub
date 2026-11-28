@@ -94,10 +94,14 @@ export default function ExplorationPanel({
       .catch(() => {})
       .finally(() => setCheckingStatus(false));
     // 监听 iframe 内 postMessage 提交请求
+    // MUST GUARD IN-FLIGHT SUBMITS: prevent repeat clicks while the iframe request is pending.
+    // 📐 CONTRACT: QF failures leave the form open; 🔗 RELATED: exploration submit POST/GET.
+    let submitting = false;
     const handleMessage = async (e: MessageEvent) => {
       if (e.data?.type === "EXPLORATION_SUBMIT") {
         // 校验消息来源为当前 iframe，防止其它窗口伪造提交
-        if (e.source !== iframeRef.current?.contentWindow) return;
+        if (e.source !== iframeRef.current?.contentWindow || submitting) return;
+        submitting = true;
         const token = localStorage.getItem("token") || "";
         try {
           const response = await fetch(`/api/exploration-activities/${explorationId}/submit`, {
@@ -107,6 +111,10 @@ export default function ExplorationPanel({
           });
           if (response.ok) {
             const result = await response.json();
+            if (result.answersError) {
+              MessagePlugin.error("明细未保存，请检查填写内容或联系老师后重试");
+              return;
+            }
             setSubmitted(true);
             setSubmissionData(result);
           } else {
@@ -114,6 +122,8 @@ export default function ExplorationPanel({
           }
         } catch {
           MessagePlugin.error("提交失败，请检查网络后重试");
+        } finally {
+          submitting = false;
         }
       }
     };
