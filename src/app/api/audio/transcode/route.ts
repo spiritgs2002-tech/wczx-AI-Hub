@@ -2,8 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { verifyToken } from "@/lib/auth";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { randomUUID } from "node:crypto";
-import { readFile, writeFile, unlink, mkdir } from "node:fs/promises";
+import { readFile, writeFile, mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -28,7 +27,7 @@ const execFileAsync = promisify(execFile);
 const MAX_INPUT_BYTES = 20 * 1024 * 1024;
 const FFMPEG_TIMEOUT_MS = 30_000;
 
-/** MIME → ffmpeg 输入扩展名白名单；未知 MIME 一律拒绝，避免路径/协议注入 */
+/** MIME → 支持的容器；空或未知 MIME 仅接受已识别的音频文件头 */
 const MIME_TO_EXT: Record<string, string> = {
   "audio/mpeg": "mp3",
   "audio/mp3": "mp3",
@@ -60,20 +59,83 @@ function parseAudioBase64(input: string): { data: Buffer; ext: string } | null {
   b64 = b64.replace(/\s+/g, "");
   if (!b64 || !/^[A-Za-z0-9+/]+={0,2}$/.test(b64)) return null;
 
-  // 文件名扩展名只能来自白名单；空 MIME 时按字节魔数兜底（Android 常返回空 type）
-  let ext = MIME_TO_EXT[mime];
-  if (!ext) {
-    const head = Buffer.from(b64.slice(0, 32), "base64");
-    if (head.slice(0, 4).toString("ascii") === "RIFF") ext = "wav";
-    else if (head.slice(4, 8).toString("ascii") === "ftyp") ext = "m4a";
-    else if (head.slice(1, 4).toString("ascii") === "ftyp") ext = "m4a";
-    else if (head.slice(0, 4).toString("ascii") === "OggS") ext = "ogg";
-    else if (head[0] === 0xff && (head[1] & 0xe0) === 0xe0) ext = "mp3"; // MPEG 帧同步
-    else ext = "bin"; // ffmpeg 会按字节自行探测，扩展名仅作提示
-  }
+  if (b64.length > Math.ceil(MAX_INPUT_BYTES / 3) * 4) return null;
   const data = Buffer.from(b64, "base64");
   if (!data.length || data.length > MAX_INPUT_BYTES) return null;
+  const ext = Object.hasOwn(MIME_TO_EXT, mime) ? MIME_TO_EXT[mime] : detectAudioFormat(data);
+  if (!ext) return null;
   return { data, ext };
+}
+
+// DO NOT AUTO-DETECT ARBITRARY DEMUXERS: force a supported audio container and deny network protocols.
+// 📐 CONTRACT: no playlists or external tracks; 🔗 RELATED: student/chat audio attachment fallback.
+const DEMUXERS: Record<string, string> = {
+  mp3: "mp3", m4a: "mov", aac: "aac", ogg: "ogg", webm: "matroska",
+  wav: "wav", "3gp": "mov", "3g2": "mov", amr: "amr", flac: "flac",
+};
+function detectAudioFormat(data: Buffer): string | undefined {
+  if (data.toString("ascii", 4, 8) === "ftyp") return "m4a";
+  if (data.toString("ascii", 0, 4) === "RIFF") return "wav";
+  if (data.toString("ascii", 0, 4) === "OggS") return "ogg";
+  if (data.toString("ascii", 0, 4) === "fLaC") return "flac";
+  if (data.toString("ascii", 0, 5) === "#!AMR") return "amr";
+  if (data.readUintBE(0, Math.min(data.length, 4)) === 0x1a45dfa3) return "webm";
+  if (data[0] === 0xff && (data[1] & 0xf6) === 0xf0) return "aac";
+  if (data.toString("ascii", 0, 3) === "ID3" || (data[0] === 0xff && (data[1] & 0xe0) === 0xe0)) return "mp3";
+}
+
+const MAX_BODY_BYTES = Math.ceil(MAX_INPUT_BYTES / 3) * 4 + 1024;
+const MAX_DURATION_SECONDS = 120;
+const OUTPUT_SAMPLE_RATE = 16_000;
+const MAX_PCM_BYTES = MAX_DURATION_SECONDS * OUTPUT_SAMPLE_RATE * 2; // 单声道 PCM s16le
+const MAX_WAV_BYTES = MAX_PCM_BYTES + 44 + 1024;
+let activeRequests = 0;
+
+// DO NOT MEASURE THE RIFF FILE SIZE: FFmpeg may add LIST metadata and padding around the PCM.
+// 📐 CONTRACT: exactly 120 seconds is allowed; the data chunk excludes container overhead.
+// 🔗 RELATED: output format, sample rate and -fs cap in POST below.
+// ⛔ DO NOT REVERT: -fs bounds the temporary file, but cannot determine its audio duration.
+function wavPcmBytes(wav: Buffer): number {
+  if (wav.length < 12 || wav.toString("ascii", 0, 4) !== "RIFF" || wav.toString("ascii", 8, 12) !== "WAVE") {
+    throw new Error("无效 WAV");
+  }
+  for (let offset = 12; offset + 8 <= wav.length;) {
+    const bytes = wav.readUInt32LE(offset + 4);
+    const end = offset + 8 + bytes;
+    if (end > wav.length) break;
+    if (wav.toString("ascii", offset, offset + 4) === "data" && bytes > 0) return bytes;
+    offset = end + (bytes % 2);
+  }
+  throw new Error("无效 WAV 数据块");
+}
+
+async function readAudioRequest(req: NextRequest) {
+  const reader = req.body?.getReader();
+  if (!reader) return null;
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  let timedOut = false;
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    void reader.cancel().catch(() => {});
+  }, FFMPEG_TIMEOUT_MS);
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      size += value.length;
+      if (size > MAX_BODY_BYTES) {
+        void reader.cancel().catch(() => {});
+        return null;
+      }
+      chunks.push(value);
+    }
+    if (timedOut) return null;
+    return JSON.parse(Buffer.concat(chunks, size).toString("utf8")) as { audio?: unknown } | null;
+  } finally {
+    clearTimeout(timeout);
+    reader.releaseLock();
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -82,57 +144,41 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "未登录" }, { status: 401 });
   }
 
-  let body: { audio?: unknown } | null = null;
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ error: "请求体不是合法 JSON" }, { status: 400 });
+  // ⛔ DO NOT REVERT: cap concurrent reads and child processes before reading the request.
+  // 📐 CONTRACT: bounds apply per server process; 🔗 RELATED: input/output caps below.
+  if (activeRequests >= 2) {
+    return NextResponse.json({ error: "音频转码繁忙，请稍后重试" }, { status: 429 });
   }
-  const parsed = parseAudioBase64(typeof body?.audio === "string" ? body.audio : "");
-  if (!parsed) {
-    return NextResponse.json({ error: "音频数据无效或超过 20MB" }, { status: 400 });
-  }
-
-  const dir = path.join(os.tmpdir(), `wczx-audio-${randomUUID()}`);
-  const inputPath = path.join(dir, `input.${parsed.ext}`);
-  const outputPath = path.join(dir, "output.wav");
+  activeRequests++;
+  let dir: string | undefined;
   try {
-    await mkdir(dir, { recursive: true });
-    await writeFile(inputPath, parsed.data);
-    await execFileAsync(
-      "ffmpeg",
-      [
-        "-hide_banner",
-        "-loglevel",
-        "error",
-        "-y",
-        "-i",
-        inputPath,
-        "-vn",
-        "-ac",
-        "1",
-        "-ar",
-        "16000",
-        "-c:a",
-        "pcm_s16le",
-        outputPath,
-      ],
-      { timeout: FFMPEG_TIMEOUT_MS, maxBuffer: 1024 * 1024 }
-    );
-    const wav = await readFile(outputPath);
-    if (!wav.length || wav.slice(0, 4).toString("ascii") !== "RIFF") {
-      throw new Error("ffmpeg 未生成有效 WAV");
+    const body = await readAudioRequest(req).catch(() => null);
+    const parsed = parseAudioBase64(typeof body?.audio === "string" ? body.audio : "");
+    if (!parsed) {
+      return NextResponse.json({ error: "音频格式无效或超过 20MB" }, { status: 400 });
     }
-    const dataUrl = `data:audio/wav;base64,${wav.toString("base64")}`;
-    return NextResponse.json({ ok: true, dataUrl });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    // 不把临时路径、ffmpeg 详细日志暴露给前端（含服务端目录信息）
-    return NextResponse.json(
-      { error: "音频转码失败，请换用常见格式（m4a/mp3/wav）或页面内录音", detail: msg.slice(0, 120) },
-      { status: 500 }
-    );
+    dir = await mkdtemp(path.join(os.tmpdir(), "wczx-audio-"));
+    const inputPath = path.join(dir, "input." + parsed.ext);
+    const outputPath = path.join(dir, "output.wav");
+    await writeFile(inputPath, parsed.data);
+    const demuxer = DEMUXERS[parsed.ext];
+    await execFileAsync("ffmpeg", [
+      "-nostdin", "-hide_banner", "-loglevel", "error",
+      "-protocol_whitelist", "file", "-f", demuxer,
+      ...(demuxer === "mov" ? ["-enable_drefs", "0"] : []),
+      "-i", inputPath, "-map", "0:a:0", "-map_metadata", "-1",
+      "-ac", "1", "-ar", String(OUTPUT_SAMPLE_RATE), "-c:a", "pcm_s16le",
+      "-t", String(MAX_DURATION_SECONDS + 1), "-fs", String(MAX_WAV_BYTES), outputPath,
+    ], { timeout: FFMPEG_TIMEOUT_MS, killSignal: "SIGKILL", maxBuffer: 1024 * 1024 });
+    const wav = await readFile(outputPath);
+    if (wavPcmBytes(wav) > MAX_PCM_BYTES) {
+      return NextResponse.json({ error: "音频超过 120 秒，请缩短后重试" }, { status: 400 });
+    }
+    return NextResponse.json({ ok: true, dataUrl: "data:audio/wav;base64," + wav.toString("base64") });
+  } catch {
+    return NextResponse.json({ error: "音频转码失败，请换用常见格式（m4a/mp3/wav）或页面内录音" }, { status: 500 });
   } finally {
-    await Promise.allSettled([unlink(inputPath), unlink(outputPath)]);
+    if (dir) await rm(dir, { recursive: true, force: true }).catch(() => {});
+    activeRequests--;
   }
 }

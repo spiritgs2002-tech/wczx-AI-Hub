@@ -79,6 +79,7 @@ export async function writeCollectedAnswers(
   qfTaskId: string,
   answers: Record<string, unknown>,
   opts?: {
+    submission?: { id: string; attempt: string };
     replaceRecordId?: string | null;
     replaceRecordIds?: string[];
     identity?: { studentName?: string; studentNo?: string; studentId?: string };
@@ -111,8 +112,9 @@ export async function writeCollectedAnswers(
   }
 
   try {
-    if (opts?.replaceRecordIds?.length) {
+    if (opts?.submission || opts?.replaceRecordIds?.length) {
       const [record] = await submitQfRecordBatch(qfTaskId, [data], {
+        submission: opts.submission ? { ...opts.submission, batch: false } : undefined,
         replaceRecordIds: opts.replaceRecordIds,
         studentId: opts.identity?.studentId,
       });
@@ -140,6 +142,7 @@ export async function writeCollectedAnswerBatch(
   qfTaskId: string,
   rows: unknown[],
   opts?: {
+    submission?: { id: string; attempt: string };
     replaceRecordIds?: string[] | null;
     identity?: { studentName?: string; studentNo?: string; studentId?: string };
   },
@@ -167,6 +170,7 @@ export async function writeCollectedAnswerBatch(
   if (!cleanRows.length) return { error: "没有可写入的明细数据" };
   try {
     const records = await submitQfRecordBatch(qfTaskId, cleanRows, {
+      submission: opts?.submission ? { ...opts.submission, batch: true } : undefined,
       replaceRecordIds: opts?.replaceRecordIds ?? undefined,
       studentId: opts?.identity?.studentId,
     });

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { verifyToken } from "@/lib/auth";
@@ -46,6 +47,9 @@ export async function POST(
     const finalMaxScore = typeof maxScore === "number" ? maxScore : 100;
 
     const batchRows = Array.isArray(answersBatch) && answersBatch.length ? answersBatch : null;
+    const singleAnswers = answers && typeof answers === "object" && !Array.isArray(answers) && Object.keys(answers).length > 0
+      ? answers as Record<string, unknown>
+      : null;
     let archivedGameState = gameState && typeof gameState === "object" && !Array.isArray(gameState) ? gameState : null;
     if (batchRows && archivedGameState) {
       // MUST KEEP BATCH ANSWERS SEPARATE: 明细只走受限的 QF 路径，不在行为快照中重复存原始数组或单条答案。
@@ -55,8 +59,14 @@ export async function POST(
       archivedGameState = otherState;
     }
 
+    const qfPendingAttempt = exploration.qfTaskId && (batchRows || singleAnswers) ? randomUUID() : null;
+
     // 行为数据汇总（存 JSON，不含 actionLog）
     const extraData = {
+      // ⛔ DO NOT CLEAR OLD LINKS: 失败时保留上一次成功的记录，以便重试原子替换。
+      // 📐 CONTRACT: 最新待写入的尝试独立于旧关联；🔗 RELATED: submit GET 与 quickform/index.ts。
+      qfRequired: qfPendingAttempt !== null,
+      qfPendingAttempt,
       timeSpent: timeSpent ?? 0,
       interactions: interactions ?? 0,
       scrollDepth: scrollDepth ?? 0,
@@ -98,7 +108,7 @@ export async function POST(
       : [];
 
     // 事务：创建/更新提交记录 + 写入操作日志
-    const { submission, previousQfRecordId, previousBatchRecordIds } = await prisma.$transaction(async (tx) => {
+    const submission = await prisma.$transaction(async (tx) => {
       // 查找已有提交
       const existing = await tx.explorationSubmission.findUnique({
         where: { explorationId_studentId: { explorationId: id, studentId } },
@@ -151,14 +161,7 @@ export async function POST(
         });
       }
 
-      let previousBatchRecordIds: string[] = [];
-      try {
-        const ids: unknown = JSON.parse(existing?.qfRecordIdsJson ?? "null");
-        if (Array.isArray(ids)) {
-          previousBatchRecordIds = ids.filter((value): value is string => typeof value === "string" && !!value);
-        }
-      } catch { /* 兼容旧值，回退到单条记录 ID。 */ }
-      return { submission: sub, previousQfRecordId: existing?.qfRecordId ?? null, previousBatchRecordIds };
+      return sub;
     });
 
     // ===== QuickForm 答案落库（行为数据已落库，这一步失败不回滚、不影响学生提交）=====
@@ -166,14 +169,11 @@ export async function POST(
     let answersMode: "batch" | "single" | "none" = "none";
     let answersCount = 0;
     let qfError: string | undefined;
-    const singleAnswers = answers && typeof answers === "object" && !Array.isArray(answers) && Object.keys(answers).length > 0
-      ? answers as Record<string, unknown>
-      : null;
 
     // MUST PREFER THE BATCH: 有批量明细时只写批量路径；即使清洗失败也不回退到单条。
     // 📐 CONTRACT: 成功才更新关联 ID；🔗 RELATED: qf-binding.ts 与 quickform/index.ts。
-    // ⛔ DO NOT REVERT: 保留旧单条 core 路径，只有批量或从批量切回时替换多个旧 ID。
-    if (exploration.qfTaskId && (batchRows || singleAnswers)) {
+    // ⛔ DO NOT REVERT: 单条与批量共享同一关联事务，避免同时换写留下孤儿明细。
+    if (exploration.qfTaskId && qfPendingAttempt) {
       const student = await prisma.user.findUnique({
         where: { id: studentId },
         select: { name: true, studentNo: true },
@@ -181,14 +181,10 @@ export async function POST(
       const identity = { studentName: student?.name ?? undefined, studentNo: student?.studentNo ?? undefined, studentId };
       if (batchRows) {
         const result = await writeCollectedAnswerBatch(exploration.qfTaskId, batchRows, {
-          replaceRecordIds: previousBatchRecordIds.length ? previousBatchRecordIds : previousQfRecordId ? [previousQfRecordId] : [],
+          submission: { id: submission.id, attempt: qfPendingAttempt },
           identity,
         });
         if ("recordIds" in result && result.recordIds.length) {
-          await prisma.explorationSubmission.update({
-            where: { id: submission.id },
-            data: { qfRecordId: result.recordIds[0], qfRecordIdsJson: JSON.stringify(result.recordIds) },
-          });
           answersStored = true;
           answersMode = "batch";
           answersCount = result.written;
@@ -197,15 +193,10 @@ export async function POST(
         }
       } else if (singleAnswers) {
         const result = await writeCollectedAnswers(exploration.qfTaskId, singleAnswers, {
-          replaceRecordId: previousQfRecordId,
-          replaceRecordIds: previousBatchRecordIds,
+          submission: { id: submission.id, attempt: qfPendingAttempt },
           identity,
         });
         if ("recordId" in result) {
-          await prisma.explorationSubmission.update({
-            where: { id: submission.id },
-            data: { qfRecordId: result.recordId, qfRecordIdsJson: null },
-          });
           answersStored = true;
           answersMode = "single";
           answersCount = 1;
@@ -252,6 +243,13 @@ export async function GET(
     });
 
     if (!submission) return NextResponse.json(null);
+    // MUST CHECK THE LATEST ATTEMPT: 旧明细链接仍有效，但不会把失败的重交标记为已完成。
+    // 📐 CONTRACT: 历史记录兼容已有 qfRequired 标志；🔗 RELATED: POST 保存与 QuickForm 事务提交。
+    let progress: { qfRequired?: boolean; qfPendingAttempt?: string | null } | null = null;
+    try { progress = JSON.parse(submission.answers); } catch { /* 旧记录兼容 */ }
+    if (progress?.qfPendingAttempt || (progress?.qfRequired && !submission.qfRecordId)) {
+      return NextResponse.json(null);
+    }
 
     return NextResponse.json({
       submissionId: submission.id,

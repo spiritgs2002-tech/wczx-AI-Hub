@@ -6,9 +6,10 @@ import { lockedMinutes, recordFailure, clearFailures, tooManyAttemptsMessage } f
 // 方式二：通过密钥文件恢复密码
 export async function POST(req: NextRequest) {
   try {
-    const { phone, recoveryKey, newPassword } = await req.json();
+    const { phone: rawPhone, recoveryKey, newPassword } = await req.json();
 
-    if (!phone || !recoveryKey) {
+    const phone = typeof rawPhone === "string" ? rawPhone.trim() : "";
+    if (!phone || typeof recoveryKey !== "string" || !recoveryKey) {
       return NextResponse.json(
         { error: "请上传密钥文件并填写信息" },
         { status: 400 }
@@ -30,18 +31,12 @@ export async function POST(req: NextRequest) {
     }
 
     const user = await prisma.user.findFirst({ where: { phone } });
-    if (!user) {
-      recordFailure(rlKey);
-      return NextResponse.json({ error: "密钥文件无效" }, { status: 401 });
-    }
-
-    if (!user.passwordKeyHash) {
-      return NextResponse.json({ error: "该用户未生成密钥文件" }, { status: 400 });
-    }
-
-    // 验证密钥文件
-    const isValid = await bcrypt.compare(recoveryKey, user.passwordKeyHash);
-    if (!isValid) {
+    // DO NOT REVEAL RECOVERY STATUS: all credential failures use the same response and counter.
+    // 📐 CONTRACT: fallback bcrypt work reduces timing differences; 🔗 RELATED: forgot-password and check-recovery.
+    const fallbackHash = "$2b$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy";
+    const hash = user?.passwordKeyHash;
+    const isValid = await bcrypt.compare(recoveryKey, hash || fallbackHash);
+    if (!user || !hash || !isValid) {
       recordFailure(rlKey);
       return NextResponse.json({ error: "密钥文件无效" }, { status: 401 });
     }

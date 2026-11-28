@@ -148,7 +148,7 @@ export default function ForgotPasswordPage() {
               </Form.FormItem>
             </Form>
             <p className="text-sm text-gray-400 mt-4 text-center">
-              输入手机号后点击回车，系统将检查可用的恢复方式
+              输入手机号后点击回车，再选择你之前设置过的恢复方式
             </p>
           </>
         )}

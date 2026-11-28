@@ -289,11 +289,11 @@ model ExplorationSubmission {
   status               String                 @default("submitted")
   submittedAt          DateTime               @default(now())
   gradedAt             DateTime?
-  /// 该次提交在 QuickForm 侧对应的记录 id（qf_records.id）。
-  /// 学生重提交时先删旧记录再写新记录，靠它保证「一人一条」，不重复计数。
+  /// 最后一次成功写入 QuickForm 的记录 id。批量提交时保存第一条记录 id。
+  /// 重提交通过事务替换旧关联与明细。待写入或失败时保留旧关联，以便重试清理。
   qfRecordId           String?
   /// 批量明细模式：一次提交展开为多条 QfRecord 时，按写入顺序保存全部记录 id（JSON 字符串数组）。
-  /// 旧单条链路仍用 qfRecordId；本字段为空 = 非批量提交。重提交时按本字段原子删旧写新。
+  /// 单条只用 qfRecordId；本字段为空表示最后一次成功写入为单条或从未写入。
   /// 📐 CONTRACT: 不建新表、不改 qfRecordId 语义；前端大屏按 qfTaskId 读 QfRecord，不依赖本字段。
   /// ⛔ DO NOT REVERT: 不要把多条 id 塞进 qfRecordId，也不要把姓名/答卷写进本字段。
   qfRecordIdsJson      String?
